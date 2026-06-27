@@ -4,22 +4,35 @@ const fs = require('fs');
 const path = require('path');
 require('dotenv').config();
 
-const serviceAccountPath = process.env.FIREBASE_KEY_PATH || './firebase-service-account.json';
-const resolvedPath = path.resolve(serviceAccountPath);
-
 let db = null;
 
 try {
-  if (fs.existsSync(resolvedPath)) {
-    const serviceAccount = require(resolvedPath);
+  let serviceAccount = null;
+
+  // Option 1: JSON string from environment variable (for Render / cloud deployment)
+  if (process.env.FIREBASE_SERVICE_ACCOUNT) {
+    serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+    console.log('[Firebase] Using service account from FIREBASE_SERVICE_ACCOUNT env var.');
+  }
+  // Option 2: File-based approach (for local development)
+  else {
+    const serviceAccountPath = process.env.FIREBASE_KEY_PATH || './firebase-service-account.json';
+    const resolvedPath = path.resolve(serviceAccountPath);
+    if (fs.existsSync(resolvedPath)) {
+      serviceAccount = require(resolvedPath);
+      console.log(`[Firebase] Using service account from file: ${resolvedPath}`);
+    }
+  }
+
+  if (serviceAccount) {
     admin.initializeApp({
       credential: admin.credential.cert(serviceAccount)
     });
     db = admin.firestore();
-    console.log(`[Firebase] Initialized successfully using: ${resolvedPath}`);
+    console.log('[Firebase] Initialized successfully.');
   } else {
-    console.warn(`[Firebase] Service account JSON file not found at: ${resolvedPath}.`);
-    console.warn(`[Firebase] Commands using database will fail until file is configured.`);
+    console.warn('[Firebase] No service account found (env var or file).');
+    console.warn('[Firebase] Commands using database will fail until configured.');
   }
 } catch (error) {
   console.error('[Firebase] Failed to initialize:', error.message);

@@ -1,0 +1,13 @@
+services:
+  - type: worker
+    name: outerattic-bot
+    runtime: node
+    buildCommand: npm install
+    startCommand: node bot.js
+    envVars:
+      - key: DISCORD_TOKEN
+        sync: false  # Set manually in Render dashboard
+      - key: FIREBASE_SERVICE_ACCOUNT
+        sync: false  # Set manually in Render dashboard (paste full JSON)
+      - key: NODE_ENV
+        value: production
