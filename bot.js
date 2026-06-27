@@ -5024,6 +5024,25 @@ server.listen(PORT, () => {
   console.log(`[HTTP] Health check server running on port ${PORT}`);
 });
 
+// ─── Keep-Alive Cron: Self-ping every 4 minutes to prevent Render free tier spin-down ───
+const KEEP_ALIVE_INTERVAL = 4 * 60 * 1000; // 4 minutes
+const RENDER_URL = process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`;
+
+setInterval(() => {
+  const url = `${RENDER_URL}/health`;
+  http.get(url, (res) => {
+    let data = '';
+    res.on('data', chunk => data += chunk);
+    res.on('end', () => {
+      console.log(`[Keep-Alive] Pinged ${url} — Status: ${res.statusCode}`);
+    });
+  }).on('error', (err) => {
+    console.warn(`[Keep-Alive] Ping failed: ${err.message}`);
+  });
+}, KEEP_ALIVE_INTERVAL);
+
+console.log(`[Keep-Alive] Cron initialized — pinging every 4 minutes.`);
+
 // Bot logon
 const token = process.env.DISCORD_TOKEN;
 if (!token || token === 'your_discord_bot_token_here') {
