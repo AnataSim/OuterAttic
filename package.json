@@ -1,0 +1,14 @@
+{
+  "name": "discord-rpg-bot",
+  "version": "1.0.0",
+  "description": "Discord RPG Minigame Bot with Firebase Firestore",
+  "main": "bot.js",
+  "scripts": {
+    "start": "node bot.js"
+  },
+  "dependencies": {
+    "discord.js": "^14.15.3",
+    "firebase-admin": "^12.1.1",
+    "dotenv": "^16.4.5"
+  }
+}
