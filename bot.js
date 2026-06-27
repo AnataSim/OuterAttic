@@ -5025,12 +5025,14 @@ server.listen(PORT, () => {
 });
 
 // ─── Keep-Alive Cron: Self-ping every 4 minutes to prevent Render free tier spin-down ───
+const https = require('https');
 const KEEP_ALIVE_INTERVAL = 4 * 60 * 1000; // 4 minutes
 const RENDER_URL = process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`;
 
 setInterval(() => {
   const url = `${RENDER_URL}/health`;
-  http.get(url, (res) => {
+  const client = url.startsWith('https') ? https : http;
+  client.get(url, (res) => {
     let data = '';
     res.on('data', chunk => data += chunk);
     res.on('end', () => {
