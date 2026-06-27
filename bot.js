@@ -5001,6 +5001,29 @@ async function showTeamView(message, userId) {
   }
 }
 
+// ─── HTTP Server for Render Free Tier (Web Service) ───
+const http = require('http');
+const PORT = process.env.PORT || 3000;
+
+const server = http.createServer((req, res) => {
+  if (req.url === '/health') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      status: 'ok',
+      uptime: process.uptime(),
+      bot: client.isReady() ? 'online' : 'connecting',
+      guilds: client.isReady() ? client.guilds.cache.size : 0
+    }));
+  } else {
+    res.writeHead(200, { 'Content-Type': 'text/plain' });
+    res.end('OuterAttic Bot is running!');
+  }
+});
+
+server.listen(PORT, () => {
+  console.log(`[HTTP] Health check server running on port ${PORT}`);
+});
+
 // Bot logon
 const token = process.env.DISCORD_TOKEN;
 if (!token || token === 'your_discord_bot_token_here') {

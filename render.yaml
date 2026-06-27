@@ -1,9 +1,10 @@
 services:
-  - type: worker
+  - type: web
     name: outerattic-bot
     runtime: node
     buildCommand: npm install
     startCommand: node bot.js
+    plan: free
     envVars:
       - key: DISCORD_TOKEN
         sync: false  # Set manually in Render dashboard
