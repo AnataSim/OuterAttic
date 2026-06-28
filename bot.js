@@ -378,7 +378,7 @@ const COMMAND_PAYLOADS = [
   },
   {
     name: 'by',
-    description: 'Beyond system commands: check info or level up',
+    description: 'Beyond system commands: check info, level up, or downgrade threat level',
     options: [
       {
         name: 'info',
@@ -388,6 +388,11 @@ const COMMAND_PAYLOADS = [
       {
         name: 'up',
         description: 'Upgrade Beyond Threat Level (+1, costs 300 Elemental Stones)',
+        type: 1
+      },
+      {
+        name: 'down',
+        description: 'Downgrade Beyond Threat Level (-1, free)',
         type: 1
       }
     ],
@@ -3842,7 +3847,7 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
   if (command === 'by') {
     try {
       if (args.length === 0) {
-        return message.reply(`📋 **Beyond Commands Usage:**\n• \`${effectivePrefix}by info\` - Check Beyond Threat Level status and TX Kirin stats\n• \`${effectivePrefix}by up\` - Upgrade Beyond Threat Level (+1, costs 300 Elemental Stones)`);
+        return message.reply(`📋 **Beyond Commands Usage:**\n• \`${effectivePrefix}by info\` - Check Beyond Threat Level status and TX Kirin stats\n• \`${effectivePrefix}by up\` - Upgrade Beyond Threat Level (+1, costs 300 Elemental Stones)\n• \`${effectivePrefix}by down\` - Downgrade Beyond Threat Level (-1, free)`);
       }
 
       const subCommand = args[0].toLowerCase();
@@ -3906,10 +3911,34 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
 
         return message.reply({ embeds: [embed] });
 
+      } else if (subCommand === 'down') {
+        if (!profile.killedBeyondT6) {
+          return message.reply(`❌ Prerequisite not met! You must defeat Beyond T6 monsters first.`);
+        }
+
+        const currentByLvl = profile.beyondLevel || 0;
+        if (currentByLvl <= 1) {
+          return message.reply(`❌ Your Beyond Threat Level is already at the minimum (**Level 1**)!`);
+        }
+
+        profile.beyondLevel = currentByLvl - 1;
+        await firebase.saveUser(userId, profile);
+
+        const embed = new EmbedBuilder()
+          .setTitle(`🌌 Beyond Threat Level Downgraded!`)
+          .setColor('#9C27B0')
+          .setDescription(`Your Beyond Threat Level has been downgraded for free!`)
+          .addFields(
+            { name: 'Beyond Threat Level', value: `🌌 **Level ${profile.beyondLevel}**`, inline: true }
+          )
+          .setTimestamp();
+
+        return message.reply({ embeds: [embed] });
+
       } else if (subCommand === 'fight') {
         return message.reply(`❌ The \`by fight\` command has been retired. Please challenge the TX Kirin boss using the standard \`${effectivePrefix}hunt\` command!`);
       } else {
-        return message.reply(`❌ Invalid sub-command. Did you mean: \`${effectivePrefix}by info\` or \`${effectivePrefix}by up\`?`);
+        return message.reply(`❌ Invalid sub-command. Did you mean: \`${effectivePrefix}by info\`, \`${effectivePrefix}by up\`, or \`${effectivePrefix}by down\`?`);
       }
 
     } catch (err) {
