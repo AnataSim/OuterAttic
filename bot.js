@@ -1937,7 +1937,7 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
         { name: '📋 Battle Info', value: battleInfoText, inline: true },
         { name: isBeyondMode ? '📊 Kirin Stats' : '📊 Monster Stats', value: monsterStatsText, inline: true },
         { name: '⚜️ Element Resilience', value: `\`\`\`\n${battle.monsterResistances.join(', ')}\n\`\`\``, inline: false },
-        { name: '💥 Total Damage', value: `\`\`\`\nTotal Damage: ${battle.totalDamageDealt}\n\`\`\``, inline: false }
+        { name: '💥 Total Damage', value: `\`\`\`\nTotal Damage: ${battle.totalDamageDealt.toLocaleString('id-ID')}\n\`\`\``, inline: false }
       );
 
       // Helper to construct progress block
@@ -2437,7 +2437,7 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
         huntEmbed.addFields({ name: '🧬 Element Resilience', value: `\`${battle.monsterResistances.join(', ')}\``, inline: false });
       }
 
-      huntEmbed.addFields({ name: '💥 Total Damage', value: `\`Total Damage: ${battle.totalDamageDealt}\``, inline: false });
+      huntEmbed.addFields({ name: '💥 Total Damage', value: `\`Total Damage: ${battle.totalDamageDealt.toLocaleString('id-ID')}\``, inline: false });
 
       if (huntLayout === 'informative') {
         const getProgressText = () => {
