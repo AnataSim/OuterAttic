@@ -1,5 +1,5 @@
 // gameData.js
-const { MONSTERS, getRandomMonster, findMonsterByName, getTierChances } = require('./monsters');
+const { MONSTERS, getRandomMonster, findMonsterByName, getTierChances, getTXKirinStats } = require('./monsters');
 const { WEAPONS, getRandomWeapon, findWeaponByName, getWeaponPassiveDescription } = require('./weapons');
 const { getPowerScaling, getUserStats, simulateBattle } = require('./combat');
 
@@ -32,5 +32,6 @@ module.exports = {
   getUserStats,
   simulateBattle,
   getWeaponPassiveDescription,
-  getTierChances
+  getTierChances,
+  getTXKirinStats
 };

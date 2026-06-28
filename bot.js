@@ -375,6 +375,29 @@ const COMMAND_PAYLOADS = [
     }],
     integration_types: [0, 1],
     contexts: [0, 1, 2]
+  },
+  {
+    name: 'by',
+    description: 'Beyond system commands: check info, level up, or fight TX Kirin',
+    options: [
+      {
+        name: 'info',
+        description: 'Check Beyond Threat Level status and Kirin stats',
+        type: 1
+      },
+      {
+        name: 'up',
+        description: 'Upgrade Beyond Threat Level (+1, costs 300 Elemental Stones)',
+        type: 1
+      },
+      {
+        name: 'fight',
+        description: 'Fight the TX Kirin boss scaled to your Beyond Level',
+        type: 1
+      }
+    ],
+    integration_types: [0, 1],
+    contexts: [0, 1, 2]
   }
 ];
 
@@ -994,6 +1017,9 @@ function getUnlockedAchievements(profile, member = null, allUsers = []) {
   // 11. Now we getting Somewhere - Killing Beyond T6
   list.push({ id: 'beyond_t6', title: 'Now we getting Somewhere', desc: 'Killing Beyond T6', unlocked: !!profile.killedBeyondT6 });
 
+  // 12. Celestial Conqueror - Defeated TX Kirin
+  list.push({ id: 'celestial_conqueror', title: 'Celestial Conqueror', desc: 'Defeated TX Kirin', unlocked: !!profile.killedTXKirin });
+
   return list;
 }
 
@@ -1530,7 +1556,8 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
         { name: `${effectivePrefix}s l [simple/informative]`, value: "Toggle duplicate loot layout settings." },
         { name: `${effectivePrefix}s h [simple/informative/info]`, value: "Toggle hunt battle log layouts." },
         { name: `${effectivePrefix}userprefix [prefix]`, value: "Change your personal prefix preference (use `reset` or `none` to clear)." },
-        { name: `${effectivePrefix}serverprefix [prefix]`, value: "Change server-wide prefix preference (Manage Server permission required, use `reset` or `none` to clear)." }
+        { name: `${effectivePrefix}serverprefix [prefix]`, value: "Change server-wide prefix preference (Manage Server permission required, use `reset` or `none` to clear)." },
+        { name: `${effectivePrefix}by [info/up/fight]`, value: "Beyond Threat Level system & TX Kirin boss fight. (10s cooldown for fight)" }
       )
       .setFooter({ text: `Active Prefix: ${effectivePrefix} | User Prefix: ${userPrefix || 'None'} | Server Prefix: ${serverPrefix || 'None'}` });
     return message.reply({ embeds: [embed] });
@@ -2763,7 +2790,7 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
 
       const formattedGold = formatIndoNumber(profile.currency || 0);
       const progressPct = Math.floor((profile.xp / xpReq) * 100);
-      const levelProgressText = `Level Player: **${profile.level}**\nProgress: \`[${progressBar}]\` (${progressPct}%)\nXP Player: **${profile.xp}/${xpReq}**\nGold: **${formattedGold}**\nPS: **${ps}/120**\n💎 Elemental Stones: **${profile.elementalStones || 0}**\n☣️ Lobby Threat Level: **${profile.lobbyThreatOffset >= 0 ? '+' : ''}${profile.lobbyThreatOffset || 0}**`;
+      const levelProgressText = `Level Player: **${profile.level}**\nProgress: \`[${progressBar}]\` (${progressPct}%)\nXP Player: **${profile.xp}/${xpReq}**\nGold: **${formattedGold}**\nPS: **${ps}/120**\n💎 Elemental Stones: **${profile.elementalStones || 0}**\n☣️ Lobby Threat Level: **${profile.lobbyThreatOffset >= 0 ? '+' : ''}${profile.lobbyThreatOffset || 0}**\n🌌 Beyond Level: **${profile.beyondLevel || 0}**`;
 
       const combatStatsText = `❤️ **HP**: ${stats.hp}\n⚔️ **ATK**: ${stats.atk}\n🛡️ **DEF**: ${stats.def}\n🪄 **Heal**: +${stats.healAmount} HP/rd`;
 
@@ -3730,6 +3757,323 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
     } catch (err) {
       console.error('[Command Threat Error]', err);
       return message.reply('❌ Failed to update lobby threat level.');
+    }
+  }
+
+  // COMMAND: BEYOND SYSTEM ('by)
+  if (command === 'by') {
+    try {
+      if (args.length === 0) {
+        return message.reply(`📋 **Beyond Commands Usage:**\n• \`${effectivePrefix}by info\` - Check Beyond Threat Level status and TX Kirin stats\n• \`${effectivePrefix}by up\` - Upgrade Beyond Threat Level (+1, costs 300 Elemental Stones)\n• \`${effectivePrefix}by fight\` - Fight the TX Kirin boss scaled to your Beyond Level`);
+      }
+
+      const subCommand = args[0].toLowerCase();
+      const profile = await firebase.getUser(userId);
+
+      if (subCommand === 'info') {
+        const byLevel = profile.beyondLevel || 0;
+        const elementalStones = profile.elementalStones || 0;
+        const hasUnlocked = !!profile.killedBeyondT6;
+        
+        const embed = new EmbedBuilder()
+          .setTitle(`🌌 Beyond Threat Level Info`)
+          .setColor('#9C27B0')
+          .setDescription(`Defeat Beyond T6 monsters to unlock access to the infinite-scaling TX Kirin. Raise your Beyond Threat Level to increase Kirin's stats and rewards!`)
+          .addFields(
+            { name: 'Prerequisite (Killed Beyond T6)', value: hasUnlocked ? '✅ Completed' : '❌ Incomplete', inline: true },
+            { name: 'Current Beyond Level', value: `🌌 **Level ${byLevel}**`, inline: true },
+            { name: 'Elemental Stones Owned', value: `💎 **${elementalStones}**`, inline: true }
+          );
+
+        if (hasUnlocked) {
+          const displayLvl = Math.max(1, byLevel);
+          const activeTeam = getActiveTeam(profile);
+          const ps = gameData.getPowerScaling(activeTeam, profile.monsterLevels, profile.weaponLevels, profile.level);
+          const kirinStats = gameData.getTXKirinStats(displayLvl, profile.level, ps);
+          
+          embed.addFields(
+            { name: `⚡ TX Kirin Stats (BY Level ${displayLvl})`, value: `❤️ **HP**: ${kirinStats.hp.toLocaleString('id-ID')}\n⚔️ **ATK**: ${kirinStats.atk.toLocaleString('id-ID')}\n🛡️ **DEF**: ${kirinStats.def.toLocaleString('id-ID')}\n✨ **Passive**: ${kirinStats.passiveName}\n📜 **Description**: ${kirinStats.passiveDesc}` },
+            { name: 'Upgrade Cost', value: `💎 **300 Elemental Stones** (\`'by up\`)` }
+          );
+        } else {
+          embed.addFields({ name: 'Access Locked', value: `You must defeat Beyond T6 monsters first to unlock Beyond Threat Level features.` });
+        }
+
+        embed.setTimestamp();
+        return message.reply({ embeds: [embed] });
+
+      } else if (subCommand === 'up') {
+        if (!profile.killedBeyondT6) {
+          return message.reply(`❌ Prerequisite not met! You must defeat Beyond T6 monsters first.`);
+        }
+
+        if ((profile.elementalStones || 0) < 300) {
+          return message.reply(`❌ You do not have enough Elemental Stones! Upgrading Beyond Threat Level costs **300 Elemental Stones** (You have: ${profile.elementalStones || 0}).`);
+        }
+
+        const currentByLvl = profile.beyondLevel || 0;
+        profile.elementalStones -= 300;
+        profile.beyondLevel = currentByLvl + 1;
+        await firebase.saveUser(userId, profile);
+
+        const embed = new EmbedBuilder()
+          .setTitle(`🌌 Beyond Threat Level Upgraded!`)
+          .setColor('#9C27B0')
+          .setDescription(`You consumed **300 Elemental Stones** to upgrade your Beyond Threat Level!`)
+          .addFields(
+            { name: 'Beyond Threat Level', value: `🌌 **Level ${profile.beyondLevel}**`, inline: true },
+            { name: 'Remaining Stones', value: `💎 **${profile.elementalStones}**`, inline: true }
+          )
+          .setTimestamp();
+
+        return message.reply({ embeds: [embed] });
+
+      } else if (subCommand === 'fight') {
+        if (!profile.killedBeyondT6) {
+          return message.reply(`❌ Prerequisite not met! You must defeat Beyond T6 monsters first.`);
+        }
+
+        const byLevel = profile.beyondLevel || 0;
+        if (byLevel < 1) {
+          return message.reply(`❌ You must upgrade your Beyond Threat Level to at least **Level 1** using \`'by up\` (costs 300 Elemental Stones) to challenge TX Kirin!`);
+        }
+
+        // Check Hunt cooldown
+        const remaining = checkCooldown(userId, 'hunt');
+        if (remaining) {
+          return message.reply(`⏳ You are exhausted from hunting! Please wait **${remaining}s** before trying again.`);
+        }
+
+        const activeTeam = getActiveTeam(profile);
+        const playerStats = gameData.getUserStats(profile.level, activeTeam, profile.monsterLevels, profile.weaponLevels);
+        const ps = gameData.getPowerScaling(activeTeam, profile.monsterLevels, profile.weaponLevels, profile.level);
+
+        // Get TX Kirin monster data dynamically
+        const kirinMonsterObj = gameData.getTXKirinStats(byLevel, profile.level, ps);
+
+        // Simulate Battle
+        const battle = gameData.simulateBattle(
+          playerStats,
+          kirinMonsterObj,
+          activeTeam,
+          profile.weaponLevels,
+          profile.monsterLevels
+        );
+
+        // Compute rewards on victory
+        let xpGained = 0;
+        let goldGained = 0;
+        let stonesGained = 0;
+        let marksGained = 0;
+        let statusText = 'Draw';
+        let embedColor = '#9E9E9E';
+
+        const levelMultiplier = 1 + (profile.level - 1) * 0.1;
+        
+        if (battle.won) {
+          statusText = 'Victory';
+          embedColor = '#4CAF50';
+          xpGained = Math.floor(2000 * byLevel * levelMultiplier);
+          goldGained = Math.floor(5000 * byLevel * levelMultiplier);
+          stonesGained = 5 + byLevel;
+          marksGained = 50 + byLevel * 5;
+
+          profile.currency = (profile.currency || 0) + goldGained;
+          profile.elementalStones = (profile.elementalStones || 0) + stonesGained;
+          profile.huntMarks = (profile.huntMarks || 0) + marksGained;
+          profile.killedTXKirin = true;
+        } else if (battle.result === 'draw') {
+          statusText = 'Draw';
+          embedColor = '#9E9E9E';
+          xpGained = Math.floor((10 + Math.floor(Math.random() * 20)) * levelMultiplier);
+        } else {
+          statusText = 'Defeat';
+          embedColor = '#F44336';
+          xpGained = Math.floor((10 + Math.floor(Math.random() * 20)) * levelMultiplier);
+        }
+
+        // Add equipment/weapon XP
+        const equipLvlUps = addEquipXP(profile, activeTeam, battle.won);
+        
+        // Add player XP (handles level ups)
+        const levelUp = addXP(profile, xpGained);
+
+        profile.totalDamage = (profile.totalDamage || 0) + battle.totalDamageDealt;
+
+        await firebase.saveUser(userId, profile);
+
+        const embed = new EmbedBuilder().setAuthor({ name: `${message.author.username}'s Beyond Fight`, iconURL: message.author.displayAvatarURL() });
+
+        const huntLayout = (profile.settings && profile.settings.huntLayout) || 'informative';
+        let pages = [];
+        let currentPageIndex = 0;
+        let renderEmbedDescription = null;
+
+        if (huntLayout === 'simple') {
+          // Simple layout doesn't show battle rounds in description
+        } else {
+          pages = chunkBattleRounds(battle.rounds, 4);
+          currentPageIndex = pages.length - 1;
+
+          renderEmbedDescription = (pageIdx) => {
+            return `**Battle Summary (Page ${pageIdx + 1}/${pages.length}):**\n\`\`\`\n${pages[pageIdx]}\n\`\`\``;
+          };
+          
+          embed.setDescription(renderEmbedDescription(currentPageIndex));
+        }
+
+        const teamName = activeTeam.name || `Team ${profile.activeTeamIndex + 1}`;
+        embed.setTitle(teamName).setColor(embedColor);
+
+        // Add double-column fields
+        const battleInfoText = `• **Monster**: TX Kirin\n• **BY Level**: Level ${byLevel}\n• **Status**: ${statusText}`;
+        const monsterStatsText = `• **HP**: ${kirinMonsterObj.hp.toLocaleString('id-ID')}\n• **ATK**: ${kirinMonsterObj.atk.toLocaleString('id-ID')}\n• **DEF**: ${kirinMonsterObj.def.toLocaleString('id-ID')}`;
+
+        embed.addFields(
+          { name: '📋 Battle Info', value: battleInfoText, inline: true },
+          { name: '📊 Kirin Stats', value: monsterStatsText, inline: true },
+          { name: '⚜️ Element Resilience', value: `\`\`\`\n${battle.monsterResistances.join(', ')}\n\`\`\``, inline: false },
+          { name: '💥 Total Damage', value: `\`\`\`\nTotal Damage: ${battle.totalDamageDealt}\n\`\`\``, inline: false }
+        );
+
+        // Progress block text helper
+        const getProgressText = () => {
+          const lines = [];
+          
+          // 1. Profile
+          const profileXpReq = gameData.getXPRequired(profile.level);
+          const profileBar = getProgressBar(profile.xp, profileXpReq, 10);
+          lines.push(`Level Profile: Level ${profile.level} [${profileBar}] (${profile.xp}/${profileXpReq} XP)`);
+          
+          // 2. Weapon
+          const weaponName = activeTeam.onfield.weapon;
+          if (weaponName) {
+            const wData = profile.weaponLevels[weaponName] || { level: 1, xp: 0 };
+            if (wData.level >= 30) {
+              lines.push(`Level Weapon: Level 30/30 [██████████] (MAX)`);
+            } else {
+              const wXpReq = wData.level * 50;
+              const wBar = getProgressBar(wData.xp, wXpReq, 10);
+              lines.push(`Level Weapon: Level ${wData.level}/30 [${wBar}] (${wData.xp}/${wXpReq} XP)`);
+            }
+          } else {
+            lines.push(`Level Weapon: None`);
+          }
+          
+          // 3. Monster
+          const monsterName = activeTeam.onfield.monster;
+          if (monsterName) {
+            const mData = profile.monsterLevels[monsterName] || { level: 1, xp: 0 };
+            if (mData.level >= 20) {
+              lines.push(`Level Monster: Level 20/20 [██████████] (MAX)`);
+            } else {
+              const mXpReq = mData.level * 50;
+              const mBar = getProgressBar(mData.xp, mXpReq, 10);
+              lines.push(`Level Monster: Level ${mData.level}/20 [${mBar}] (${mData.xp}/${mXpReq} XP)`);
+            }
+          } else {
+            lines.push(`Level Monster: None`);
+          }
+          
+          return `\`\`\`\n${lines.join('\n')}\n\`\`\``;
+        };
+
+        const outcomeText = `Round: ${battle.roundsPlayed}/30 | +${xpGained} XP | +${goldGained} Golds | Hunt Marks: ${profile.huntMarks}`;
+        embed.setFooter({ text: outcomeText });
+
+        embed.addFields({ name: '📊 Progress', value: getProgressText(), inline: false });
+
+        if (battle.won) {
+          embed.addFields({ name: '🎁 Victory Rewards', value: `🔺 **XP**: +${xpGained.toLocaleString('id-ID')}\n🪙 **Gold**: +${goldGained.toLocaleString('id-ID')}\n💎 **Elemental Stones**: +${stonesGained}\n🎯 **Hunt Marks**: +${marksGained}` });
+          
+          // Achievements check
+          if (!profile.unlockedAchievements?.includes('celestial_conqueror')) {
+            profile.unlockedAchievements = profile.unlockedAchievements || [];
+            profile.unlockedAchievements.push('celestial_conqueror');
+            await firebase.saveUser(userId, profile);
+            embed.addFields({ name: '🏆 Achievement Unlocked!', value: `🌟 **Celestial Conqueror** (Defeated TX Kirin)` });
+          }
+        } else {
+          embed.addFields({ name: '🎁 Rewards', value: `🔺 **XP**: +${xpGained.toLocaleString('id-ID')}` });
+        }
+
+        if (levelUp) {
+          embed.addFields({ name: '⭐ LEVEL UP!', value: `🎉 Congratulations! You have leveled up to **Level ${profile.level}**!` });
+        }
+        if (equipLvlUps && equipLvlUps.length > 0) {
+          embed.addFields({ name: '📈 Equipment Level Up!', value: equipLvlUps.join('\n') });
+        }
+
+        const sentMessage = await message.reply({ embeds: [embed] });
+
+        if (huntLayout === 'informative' && pages.length > 1) {
+          const prevCustomId = `by_prev_${userId}_${Date.now()}`;
+          const nextCustomId = `by_next_${userId}_${Date.now()}`;
+          
+          const getRow = () => {
+            return new ActionRowBuilder()
+              .addComponents(
+                new ButtonBuilder()
+                  .setCustomId(prevCustomId)
+                  .setLabel('⬅️ Previous')
+                  .setStyle(ButtonStyle.Primary)
+                  .setDisabled(currentPageIndex === 0),
+                new ButtonBuilder()
+                  .setCustomId(nextCustomId)
+                  .setLabel('Next ➡️')
+                  .setStyle(ButtonStyle.Primary)
+                  .setDisabled(currentPageIndex === pages.length - 1)
+              );
+          };
+
+          await sentMessage.edit({ components: [getRow()] }).catch(() => {});
+
+          const filter = (i) => i.user.id === userId && (i.customId === prevCustomId || i.customId === nextCustomId);
+          const collector = sentMessage.createMessageComponentCollector({ filter, time: 60000 });
+
+          collector.on('collect', async (i) => {
+            try {
+              if (i.customId === prevCustomId) {
+                if (currentPageIndex > 0) currentPageIndex--;
+              } else if (i.customId === nextCustomId) {
+                if (currentPageIndex < pages.length - 1) currentPageIndex++;
+              }
+
+              await i.update({
+                embeds: [embed.setDescription(renderEmbedDescription(currentPageIndex))],
+                components: [getRow()]
+              });
+            } catch (err) {
+              console.error('[Button Collector Error]', err);
+            }
+          });
+
+          collector.on('end', () => {
+            const disabledRow = new ActionRowBuilder()
+              .addComponents(
+                new ButtonBuilder()
+                  .setCustomId(prevCustomId)
+                  .setLabel('⬅️ Previous')
+                  .setStyle(ButtonStyle.Primary)
+                  .setDisabled(true),
+                new ButtonBuilder()
+                  .setCustomId(nextCustomId)
+                  .setLabel('Next ➡️')
+                  .setStyle(ButtonStyle.Primary)
+                  .setDisabled(true)
+              );
+            sentMessage.edit({ components: [disabledRow] }).catch(() => {});
+          });
+        }
+        return;
+
+      } else {
+        return message.reply(`❌ Invalid sub-command. Did you mean: \`${effectivePrefix}by info\`, \`${effectivePrefix}by up\`, or \`${effectivePrefix}by fight\`?`);
+      }
+
+    } catch (err) {
+      console.error('[Command Beyond Error]', err);
+      return message.reply('❌ Failed to process Beyond command.');
     }
   }
 
@@ -4913,7 +5257,7 @@ client.on('interactionCreate', async (interaction) => {
     const item = interaction.options.getString('item');
     args.push(slot);
     args.push(...item.trim().split(/ +/));
-  } else if (commandName === 'threat') {
+  } else if (commandName === 'threat' || commandName === 'by') {
     const subcommand = interaction.options.getSubcommand();
     args.push(subcommand);
   } else if (commandName === 'reroll') {

@@ -302,10 +302,48 @@ function findMonsterByName(name) {
   return null;
 }
 
+// Generate TX Kirin boss stats dynamically based on Beyond Level
+// This is NOT a random spawn monster — it's a special boss encounter
+function getTXKirinStats(byLevel, playerLevel = 1, ps = 1) {
+  const baseHp = 50000;
+  const baseAtk = 500;
+  const baseDef = 300;
+
+  // Exponential scaling: each BY level adds massive stats
+  // BY1: 1.8x, BY2: 2.6x, BY5: 5.0x, BY10: 9.0x, BY20: 17.0x
+  const scaleFactor = 1 + byLevel * 0.80;
+  const atkScale = 1 + byLevel * 0.50;
+  const defScale = 1 + byLevel * 0.40;
+
+  // Additional PS + player level scaling so the boss stays relevant
+  const levelMult = 1 + (playerLevel - 1) * 0.1;
+  const psMult = 1 + (ps - 1) * 0.05;
+
+  const hp = Math.floor(baseHp * scaleFactor * levelMult * psMult);
+  const atk = Math.floor(baseAtk * atkScale * levelMult * psMult);
+  const def = Math.floor(baseDef * defScale * levelMult);
+
+  return {
+    name: 'Kirin',
+    displayName: `⚡ TX Kirin [BY ${byLevel}]`,
+    hp, atk, def,
+    tameRate: 0,
+    goldMin: 0, goldMax: 0,
+    xpMin: 0, xpMax: 0,
+    tier: 'tx',
+    threat: 'threatX',
+    byLevel: byLevel,
+    desc: `A celestial Kirin at Beyond Level ${byLevel}. Its power transcends mortal comprehension.`,
+    passiveName: 'Celestial Judgement',
+    passiveDesc: 'Reduces player ATK by 40%. Regens 8% Max HP per round. ATK surges +12% per round. Stun immune. 30 round limit.'
+  };
+}
+
 module.exports = {
   MONSTERS,
   drawByPowerScaling,
   getRandomMonster,
   findMonsterByName,
-  getTierChances
+  getTierChances,
+  getTXKirinStats
 };

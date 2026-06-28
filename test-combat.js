@@ -120,4 +120,15 @@ console.log(`Result: ${battle4.result}`);
 console.log(`Battle Log:`);
 battle4.rounds.forEach(r => console.log(`  ${r}`));
 
+console.log(`\n=== TEST 5: TX Kirin Boss Fight Simulation ===`);
+const { getTXKirinStats } = require('./monsters');
+const txKirin = getTXKirinStats(1, baseProfile.level, ps4);
+console.log(`TX Kirin BY1 Stats:`, JSON.stringify(txKirin, null, 2));
+
+const battle5 = simulateBattle(stats4, txKirin, kirinTeam, kirinWpLevels, kirinMonsterLevels);
+console.log(`Result: ${battle5.result}`);
+console.log(`Battle Log:`);
+battle5.rounds.forEach(r => console.log(`  ${r}`));
+
+
 

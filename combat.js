@@ -1066,58 +1066,66 @@ function simulateBattle(playerStats, monster, activeTeam, weaponLevels = {}, mon
       hasKirin = true;
       const mData = monsterLevels['Kirin'] || {};
       kirinE = mData.enchanted || mData.forge || 0;
-      kirinL = mData.level || 1;
+            kirinL = mData.level || 1;
     }
   }
   
   // Scale monster HP and ATK based on player's Power Scaling (PS) and Tier
   const ps = getPowerScaling(activeTeam, monsterLevels, weaponLevels, playerStats.level || 1);
+  let maxMonsterHp;
+  let monsterScaledAtk;
+  let enemyBaseDef;
 
-  let tierHpMult = 1.0;
-  let tierAtkMult = 1.0;
-  let tierDefMult = 1.0;
-  if (monster.tier === 'blessed') {
-    tierHpMult = 1.5;
-    tierAtkMult = 1.3;
-    tierDefMult = 1.2;
-  } else if (monster.tier === 'enchanted') {
-    tierHpMult = 2.0;
-    tierAtkMult = 1.6;
-    tierDefMult = 1.3;
-  } else if (monster.tier === 'overpowered') {
-    tierHpMult = 3.0;
-    tierAtkMult = 2.5;
-    tierDefMult = 1.5;
-  } else if (monster.tier === 'chronicle') {
-    tierHpMult = 6.0;
-    tierAtkMult = 15.0;
-    tierDefMult = 8.0;
-  } else if (monster.tier === 'prodigy') {
-    tierHpMult = 15.0;
-    tierAtkMult = 35.0;
-    tierDefMult = 15.0;
-  } else if (monster.tier === 'beyond') {
-    tierHpMult = 30.0;
-    tierAtkMult = 60.0;
-    tierDefMult = 30.0;
-  }
+  if (monster.tier === 'tx') {
+    maxMonsterHp = monster.hp;
+    monsterScaledAtk = monster.atk;
+    enemyBaseDef = monster.def;
+  } else {
+    let tierHpMult = 1.0;
+    let tierAtkMult = 1.0;
+    let tierDefMult = 1.0;
+    if (monster.tier === 'blessed') {
+      tierHpMult = 1.5;
+      tierAtkMult = 1.3;
+      tierDefMult = 1.2;
+    } else if (monster.tier === 'enchanted') {
+      tierHpMult = 2.0;
+      tierAtkMult = 1.6;
+      tierDefMult = 1.3;
+    } else if (monster.tier === 'overpowered') {
+      tierHpMult = 3.0;
+      tierAtkMult = 2.5;
+      tierDefMult = 1.5;
+    } else if (monster.tier === 'chronicle') {
+      tierHpMult = 6.0;
+      tierAtkMult = 15.0;
+      tierDefMult = 8.0;
+    } else if (monster.tier === 'prodigy') {
+      tierHpMult = 15.0;
+      tierAtkMult = 35.0;
+      tierDefMult = 15.0;
+    } else if (monster.tier === 'beyond') {
+      tierHpMult = 30.0;
+      tierAtkMult = 60.0;
+      tierDefMult = 30.0;
+    }
 
-  // Scale HP dynamically using a hybrid curve (+14% mult + 75 flat HP per PS above 1, scaled by level factor) to ensure balance
-  const pLvl = playerStats.level || 1;
-  const hpMult = 1 + (ps - 1) * 0.14;
-  const levelMultiplier = 1 + (pLvl - 1) * 0.1;
-  let maxMonsterHp = Math.floor((monster.hp * hpMult + (ps - 1) * 75 * (pLvl / 20)) * tierHpMult * levelMultiplier);
-  if (hasKirin) {
-    maxMonsterHp = Math.floor(maxMonsterHp * 2.5); // Kirin makes enemy HP 2.5x thicker
+    // Scale HP dynamically using a hybrid curve (+14% mult + 75 flat HP per PS above 1, scaled by level factor) to ensure balance
+    const pLvl = playerStats.level || 1;
+    const hpMult = 1 + (ps - 1) * 0.14;
+    const levelMultiplier = 1 + (pLvl - 1) * 0.1;
+    maxMonsterHp = Math.floor((monster.hp * hpMult + (ps - 1) * 75 * (pLvl / 20)) * tierHpMult * levelMultiplier);
+    if (hasKirin) {
+      maxMonsterHp = Math.floor(maxMonsterHp * 2.5); // Kirin makes enemy HP 2.5x thicker
+    }
+
+    // Scale ATK moderately (+6% per PS point above 1)
+    const atkMult = 1 + (ps - 1) * 0.06;
+    monsterScaledAtk = Math.floor(monster.atk * atkMult * tierAtkMult);
+    enemyBaseDef = Math.floor(monster.def * tierDefMult);
   }
   let monsterHp = maxMonsterHp;
-
-  // Scale ATK moderately (+6% per PS point above 1)
-  const atkMult = 1 + (ps - 1) * 0.06;
-  const monsterScaledAtk = Math.floor(monster.atk * atkMult * tierAtkMult);
   let currentMonsterAtk = monsterScaledAtk;
-
-  const enemyBaseDef = Math.floor(monster.def * tierDefMult);
   
   let healAmount = playerStats.healAmount || 0;
 
@@ -1147,7 +1155,7 @@ function simulateBattle(playerStats, monster, activeTeam, weaponLevels = {}, mon
   const off2Forge = off2Weapon ? getWpForge(off2Weapon.name) : 0;
 
   // Detect if monster is an Elite Tier Monster
-  const isEliteMonster = ['overpowered', 'chronicle', 'prodigy', 'beyond'].includes(monster.tier);
+  const isEliteMonster = ['overpowered', 'chronicle', 'prodigy', 'beyond', 'tx'].includes(monster.tier);
 
   // Weapon Special Ability states
   let isMonsterHealingDisabled = false;
@@ -1365,7 +1373,7 @@ function simulateBattle(playerStats, monster, activeTeam, weaponLevels = {}, mon
   let totalDamageDealt = 0;
   let nextRoundStunned = false;
 
-  const maxRounds = monster.tier === 'beyond' ? 25 : (monster.tier === 'prodigy' || monster.tier === 'overpowered') ? 20 : monster.tier === 'chronicle' ? 15 : 10;
+  const maxRounds = monster.tier === 'tx' ? 30 : monster.tier === 'beyond' ? 25 : (monster.tier === 'prodigy' || monster.tier === 'overpowered') ? 20 : monster.tier === 'chronicle' ? 15 : 10;
   
   // Carryover variables active for this round
   let roundElementAtkMult = 0;
@@ -1417,10 +1425,10 @@ function simulateBattle(playerStats, monster, activeTeam, weaponLevels = {}, mon
       nextRoundStunned = false;
     }
 
-    const isEliteTier = ['overpowered', 'chronicle', 'prodigy', 'beyond'].includes(monster.tier);
+    const isEliteTier = ['overpowered', 'chronicle', 'prodigy', 'beyond', 'tx'].includes(monster.tier);
     if (isEliteTier && roundNum === 1) {
-      const passiveName = monster.tier === 'beyond' ? 'Existential Terror' : monster.tier === 'prodigy' ? 'Transcended Form' : 'Dread Presence';
-      const atkCut = monster.tier === 'beyond' ? 30 : 20;
+      const passiveName = monster.tier === 'tx' ? 'Celestial Judgement' : monster.tier === 'beyond' ? 'Existential Terror' : monster.tier === 'prodigy' ? 'Transcended Form' : 'Dread Presence';
+      const atkCut = monster.tier === 'tx' ? 40 : monster.tier === 'beyond' ? 30 : 20;
       rounds.push(`Round 1 (${passiveName}): Player is overwhelmed, reducing their ATK by ${atkCut}%!`);
     }
     if (roundNum === 1 && atkDebuffRatio > 0) {
@@ -1502,6 +1510,9 @@ function simulateBattle(playerStats, monster, activeTeam, weaponLevels = {}, mon
       } else if (monster.tier === 'beyond') {
         playerAtk = Math.floor(playerAtk * 0.70);
         passiveLabel += ` (Existential Terror: ATK -30%)`;
+      } else if (monster.tier === 'tx') {
+        playerAtk = Math.floor(playerAtk * 0.60);
+        passiveLabel += ` (Celestial Judgement: ATK -40%)`;
       }
     }
 
@@ -2102,8 +2113,9 @@ function simulateBattle(playerStats, monster, activeTeam, weaponLevels = {}, mon
 
 
     // Elite tiers stun immunity
-    if (monsterStunned && ['chronicle', 'prodigy', 'beyond'].includes(monster.tier)) {
-      rounds.push(`Round ${roundNum} (Unstoppable): ${monster.displayName || monster.name} overpowers the stun!`);
+    if (monsterStunned && ['chronicle', 'prodigy', 'beyond', 'tx'].includes(monster.tier)) {
+      const immunePassive = monster.tier === 'tx' ? 'Divine Shield' : 'Unstoppable';
+      rounds.push(`Round ${roundNum} (${immunePassive}): ${monster.displayName || monster.name} overpowers the stun!`);
       monsterStunned = false;
       nextRoundStunned = false;
     }
@@ -2423,6 +2435,12 @@ function simulateBattle(playerStats, monster, activeTeam, weaponLevels = {}, mon
         monsterHp = Math.min(maxMonsterHp, monsterHp + regen);
         currentMonsterAtk = Math.floor(currentMonsterAtk + monsterScaledAtk * 0.08);
         rounds.push(`Round ${roundNum} (Existential Terror): Monster regens +${monsterHp - prevHp} HP and ATK erupts!`);
+      } else if (monster.tier === 'tx') {
+        const regen = Math.floor(maxMonsterHp * 0.08);
+        const prevHp = monsterHp;
+        monsterHp = Math.min(maxMonsterHp, monsterHp + regen);
+        currentMonsterAtk = Math.floor(currentMonsterAtk + monsterScaledAtk * 0.12);
+        rounds.push(`Round ${roundNum} (Thunderstorm Aura & Lightning Surge): Monster regens +${monsterHp - prevHp} HP and ATK surges by +12%!`);
       }
     }
 
