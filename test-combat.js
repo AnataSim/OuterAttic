@@ -120,15 +120,21 @@ console.log(`Result: ${battle4.result}`);
 console.log(`Battle Log:`);
 battle4.rounds.forEach(r => console.log(`  ${r}`));
 
-console.log(`\n=== TEST 5: TX Kirin Boss Fight Simulation ===`);
+console.log(`\n=== TEST 5: TX Kirin Boss Fight Simulation (BY Level 1) ===`);
 const { getTXKirinStats } = require('./monsters');
-const txKirin = getTXKirinStats(1, baseProfile.level, ps4);
-console.log(`TX Kirin BY1 Stats:`, JSON.stringify(txKirin, null, 2));
+const txKirin1 = getTXKirinStats(1, baseProfile.level, ps4);
+console.log(`TX Kirin BY1 Stats:`, JSON.stringify(txKirin1, null, 2));
 
-const battle5 = simulateBattle(stats4, txKirin, kirinTeam, kirinWpLevels, kirinMonsterLevels);
+const battle5 = simulateBattle(stats4, txKirin1, kirinTeam, kirinWpLevels, kirinMonsterLevels);
 console.log(`Result: ${battle5.result}`);
-console.log(`Battle Log:`);
-battle5.rounds.forEach(r => console.log(`  ${r}`));
+
+console.log(`\n=== TEST 6: TX Kirin Boss Fight Simulation (BY Level 2 - Stats Spike!) ===`);
+const txKirin2 = getTXKirinStats(2, baseProfile.level, ps4);
+console.log(`TX Kirin BY2 Stats:`, JSON.stringify(txKirin2, null, 2));
+
+const battle6 = simulateBattle(stats4, txKirin2, kirinTeam, kirinWpLevels, kirinMonsterLevels);
+console.log(`Result: ${battle6.result}`);
+
 
 
 

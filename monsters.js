@@ -309,11 +309,14 @@ function getTXKirinStats(byLevel, playerLevel = 1, ps = 1) {
   const baseAtk = 2000;
   const baseDef = 1500;
 
-  // Exponential scaling: each BY level adds massive stats
-  // BY1: 1.8x, BY2: 2.6x, BY5: 5.0x, BY10: 9.0x, BY20: 17.0x
-  const scaleFactor = 1 + byLevel * 0.80;
-  const atkScale = 1 + byLevel * 0.50;
-  const defScale = 1 + byLevel * 0.40;
+  // Exponential scaling: each BY level multiplies the stats exponentially
+  // BY1: HP 1.8x, ATK 1.6x, DEF 1.5x
+  // BY2: HP 3.24x, ATK 2.56x, DEF 2.25x
+  // BY5: HP 18.9x, ATK 10.5x, DEF 7.59x
+  // BY10: HP 357x, ATK 110x, DEF 57.66x
+  const scaleFactor = Math.pow(1.8, byLevel);
+  const atkScale = Math.pow(1.6, byLevel);
+  const defScale = Math.pow(1.5, byLevel);
 
   // Additional PS + player level scaling so the boss stays relevant
   const levelMult = 1 + (playerLevel - 1) * 0.1;
