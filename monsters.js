@@ -305,9 +305,9 @@ function findMonsterByName(name) {
 // Generate TX Kirin boss stats dynamically based on Beyond Level
 // This is NOT a random spawn monster — it's a special boss encounter
 function getTXKirinStats(byLevel, playerLevel = 1, ps = 1) {
-  const baseHp = 50000;
-  const baseAtk = 500;
-  const baseDef = 300;
+  const baseHp = 1500000;
+  const baseAtk = 2000;
+  const baseDef = 1500;
 
   // Exponential scaling: each BY level adds massive stats
   // BY1: 1.8x, BY2: 2.6x, BY5: 5.0x, BY10: 9.0x, BY20: 17.0x

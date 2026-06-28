@@ -378,7 +378,7 @@ const COMMAND_PAYLOADS = [
   },
   {
     name: 'by',
-    description: 'Beyond system commands: check info, level up, or fight TX Kirin',
+    description: 'Beyond system commands: check info or level up',
     options: [
       {
         name: 'info',
@@ -388,11 +388,6 @@ const COMMAND_PAYLOADS = [
       {
         name: 'up',
         description: 'Upgrade Beyond Threat Level (+1, costs 300 Elemental Stones)',
-        type: 1
-      },
-      {
-        name: 'fight',
-        description: 'Fight the TX Kirin boss scaled to your Beyond Level',
         type: 1
       }
     ],
@@ -1605,11 +1600,12 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
       const ps = gameData.getPowerScaling(activeTeam, profile.monsterLevels, profile.weaponLevels, profile.level);
       const playerStats = gameData.getUserStats(profile.level, activeTeam, profile.monsterLevels, profile.weaponLevels);
 
-      const monster = gameData.getRandomMonster(ps, profile.level, profile.lobbyThreatOffset || 0);
+      const isBeyondMode = (profile.beyondLevel || 0) >= 1;
+      const monster = isBeyondMode ? gameData.getTXKirinStats(profile.beyondLevel, profile.level, ps) : gameData.getRandomMonster(ps, profile.level, profile.lobbyThreatOffset || 0);
       const battle = gameData.simulateBattle(playerStats, monster, activeTeam, profile.weaponLevels, profile.monsterLevels);
-      const threatLabel = `Threat ${monster.threat.replace('threat', '')}`;
+      const threatLabel = isBeyondMode ? `Beyond Level ${profile.beyondLevel}` : `Threat ${monster.threat.replace('threat', '')}`;
 
-      const embed = new EmbedBuilder().setAuthor({ name: `${message.author.username}'s Hunt`, iconURL: message.author.displayAvatarURL() });
+      const embed = new EmbedBuilder().setAuthor({ name: isBeyondMode ? `${message.author.username}'s Beyond Fight` : `${message.author.username}'s Hunt`, iconURL: message.author.displayAvatarURL() });
 
       const huntLayout = (profile.settings && profile.settings.huntLayout) || 'informative';
       let pages = [];
@@ -1647,168 +1643,224 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
       let kirinUnlocked = false;
 
       const levelMultiplier = 1 + (profile.level - 1) * 0.1;
-      let tierXpMult = 1.0;
-      let tierGoldMult = 1.0;
-      if (monster.tier === 'enchanted') { tierXpMult = 1.5; tierGoldMult = 1.5; }
-      else if (monster.tier === 'blessed') { tierXpMult = 2.5; tierGoldMult = 2.5; }
-      else if (monster.tier === 'overpowered') { tierXpMult = 4.0; tierGoldMult = 4.0; }
-      else if (monster.tier === 'chronicle') { tierXpMult = 8.0; tierGoldMult = 8.0; }
-      else if (monster.tier === 'prodigy') { tierXpMult = 15.0; tierGoldMult = 15.0; }
-      else if (monster.tier === 'beyond') { tierXpMult = 30.0; tierGoldMult = 30.0; }
 
-      // Apply Power Scaling (PS) difficulty nerf multiplier (up to 80% nerf at PS 120)
-      const psScale = Math.min(120, Math.max(1, ps));
-      const diffMult = 1.0 - ((psScale - 1) / 119) * 0.8;
-
-      if (battle.result === 'victory') {
-        statusText = 'Victory';
-        embedColor = monster.tier === 'beyond' ? '#1A0D3D' : monster.tier === 'prodigy' ? '#FF6B00' : monster.tier === 'chronicle' ? '#8A2BE2' : monster.tier === 'overpowered' ? '#FF5722' : '#4CAF50';
-        
-        const bonuses = getTierBaseRewardBonuses(monster.tier);
-        xpGained = Math.floor((Math.floor(Math.random() * (monster.xpMax - monster.xpMin + 1)) + monster.xpMin + bonuses.xp) * tierXpMult * levelMultiplier);
-        goldGained = Math.floor((Math.floor(Math.random() * (monster.goldMax - monster.goldMin + 1)) + monster.goldMin + bonuses.gold) * tierGoldMult * levelMultiplier);
-
-        xpGained = Math.floor(xpGained * diffMult);
-        goldGained = Math.floor(goldGained * diffMult);
-        
-        if (hasF6Onfield) {
-          xpGained = Math.floor(xpGained * 3);
-          goldGained = Math.floor(goldGained * 3);
-        }
-        
-        // Goblin gold multiplier
-        const goblinMult = getGoblinGoldMultiplier(profile, activeTeam);
-        goldGained = Math.floor(goldGained * goblinMult);
-
-        // Midas Touch check (+20% Gold from victory for Golden Kukri Lv 10 onfield)
-        const onfieldWeapon = activeTeam && activeTeam.onfield ? gameData.findWeaponByName(activeTeam.onfield.weapon) : null;
-        const getWpLvl = (wpName) => {
-          if (!wpName) return 1;
-          return (profile.weaponLevels && profile.weaponLevels[wpName] ? profile.weaponLevels[wpName].level : 1) || 1;
-        };
-        const onfieldLvl = onfieldWeapon ? getWpLvl(onfieldWeapon.name) : 1;
-        if (onfieldWeapon && onfieldWeapon.name === 'Golden Kukri' && onfieldLvl >= 10) {
-          hasMidasTouch = true;
-          goldGained = Math.floor(goldGained * 1.20);
-        }
-
-        // Midas Strike check (+30% Gold from victory for Golden Kukri Forge >= 4 equipped in active team)
-        let hasMidasStrike = false;
-        const getWpForgeLocal = (wpName) => {
-          if (!wpName) return 0;
-          return (profile.weaponLevels && profile.weaponLevels[wpName] ? profile.weaponLevels[wpName].forge : 0) || 0;
-        };
-        for (const slot of ['onfield', 'offfield1', 'offfield2']) {
-          if (activeTeam && activeTeam[slot] && activeTeam[slot].weapon === 'Golden Kukri') {
-            if (getWpForgeLocal('Golden Kukri') >= 4) {
-              hasMidasStrike = true;
-            }
+      if (isBeyondMode) {
+        const byLevel = profile.beyondLevel;
+        if (battle.result === 'victory') {
+          statusText = 'Victory';
+          embedColor = '#FFD700'; // Gold/Yellow for TX Kirin Victory
+          
+          xpGained = Math.floor(2000 * byLevel * levelMultiplier);
+          goldGained = Math.floor(5000 * byLevel * levelMultiplier);
+          stoneReward = 5 + byLevel;
+          const markAdd = 50 + byLevel * 5;
+          profile.huntMarks = (profile.huntMarks || 0) + markAdd;
+          markText = `**${profile.huntMarks}** (+${markAdd} TX bonus ⚡)`;
+          
+          if (hasF6Onfield) {
+            xpGained = Math.floor(xpGained * 3);
+            goldGained = Math.floor(goldGained * 3);
           }
-        }
-        if (hasMidasStrike) {
-          goldGained = Math.floor(goldGained * 1.30);
-        }
-
-        forgeLevelUp = false;
-        newForgeLevel = 0;
-        if (Math.random() <= monster.tameRate && !['chronicle', 'prodigy', 'beyond'].includes(monster.tier)) {
-          tamed = true;
-          if (!profile.dex.monsters.includes(monster.name)) {
-            profile.dex.monsters.push(monster.name);
-          } else {
-            isDuplicate = true;
-          }
-
-          const newlyUnlockedKirin = checkAndUnlockKirin(profile);
-          if (newlyUnlockedKirin) {
-            kirinUnlocked = true;
-          }
-
-          if (isDuplicate) {
-            if (!profile.monsterLevels[monster.name]) {
-              profile.monsterLevels[monster.name] = { level: 1, xp: 0, enchanted: 0 };
-            }
-            const mData = profile.monsterLevels[monster.name];
-            mData.enchanted = mData.enchanted || mData.forge || 0;
-            delete mData.forge;
-
-            if (mData.enchanted < 6) {
-              mData.enchanted += 1;
-              newForgeLevel = mData.enchanted;
-              forgeLevelUp = true;
-            } else {
-              tameGoldBonus = Math.floor(goldGained * 0.5);
-              profile.currency += tameGoldBonus;
-            }
-          }
-        }
-
-        profile.currency += goldGained;
-        levelUp = addXP(profile, xpGained);
-        equipLvlUps = addEquipXP(profile, activeTeam, true);
-
-        // Dynamic Elemental Stone rewards for Overpowered+ wins in manual hunt
-        const tierLower = monster.tier.toLowerCase();
-        if (tierLower === 'beyond') {
-          if (monster.name === 'Ancient Dragon') {
-            stoneReward = 10;
-          } else {
-            stoneReward = 3;
-          }
-        } else if (tierLower === 'prodigy') {
-          if (Math.random() < 0.70) stoneReward = 1;
-        } else if (tierLower === 'chronicle') {
-          if (Math.random() < 0.40) stoneReward = 1;
-        } else if (tierLower === 'overpowered') {
-          if (Math.random() < 0.20) stoneReward = 1;
-        }
-
-        if (stoneReward > 0) {
+          
+          profile.killedTXKirin = true;
+          profile.currency += goldGained;
           profile.elementalStones = (profile.elementalStones || 0) + stoneReward;
-        }
-        
-        // Hunt Marks: Win +1, OP Win +3
-        if (monster.tier === 'beyond') {
-          profile.huntMarks = (profile.huntMarks || 0) + 20;
-          markText = `**${profile.huntMarks}** (+20 Beyond bonus 💀)`;
-        } else if (monster.tier === 'prodigy') {
-          profile.huntMarks = (profile.huntMarks || 0) + 10;
-          markText = `**${profile.huntMarks}** (+10 Prodigy bonus ⚡)`;
-        } else if (monster.tier === 'chronicle') {
-          profile.huntMarks = (profile.huntMarks || 0) + 5;
-          markText = `**${profile.huntMarks}** (+5 Chronicle bonus 📖)`;
-        } else if (monster.tier === 'overpowered') {
-          profile.huntMarks = (profile.huntMarks || 0) + 3;
-          markText = `**${profile.huntMarks}** (+3 OP bonus)`;
+          levelUp = addXP(profile, xpGained);
+          equipLvlUps = addEquipXP(profile, activeTeam, true);
+
+          // Achievements check
+          const newlyUnlockedConqueror = !profile.unlockedAchievements?.includes('celestial_conqueror');
+          if (newlyUnlockedConqueror) {
+            profile.unlockedAchievements = profile.unlockedAchievements || [];
+            profile.unlockedAchievements.push('celestial_conqueror');
+            profile.newlyUnlockedConqueror = true; // Temporary flag for embed
+          }
+        } else if (battle.result === 'draw') {
+          statusText = 'Draw';
+          embedColor = '#9E9E9E';
+          xpGained = Math.floor(400 * byLevel * levelMultiplier);
+          if (hasF6Onfield) {
+            xpGained = Math.floor(xpGained * 3);
+          }
+          levelUp = addXP(profile, xpGained);
+          equipLvlUps = addEquipXP(profile, activeTeam, false);
+          markText = `**${profile.huntMarks || 0}** (+0)`;
         } else {
-          profile.huntMarks = (profile.huntMarks || 0) + 1;
-          markText = `**${profile.huntMarks}** (+1)`;
+          statusText = 'Defeat';
+          embedColor = '#F44336';
+          xpGained = Math.floor(400 * byLevel * levelMultiplier);
+          if (hasF6Onfield) {
+            xpGained = Math.floor(xpGained * 3);
+          }
+          levelUp = addXP(profile, xpGained);
+          equipLvlUps = addEquipXP(profile, activeTeam, false);
+          profile.huntMarks = 0;
+          markText = `**0** (Reset)`;
         }
-      } else if (battle.result === 'draw') {
-        statusText = 'Draw';
-        embedColor = '#9E9E9E';
-
-        xpGained = Math.floor((Math.floor(monster.xpMin * 0.2) || 1) * tierXpMult * levelMultiplier);
-        xpGained = Math.floor(xpGained * diffMult);
-        if (hasF6Onfield) {
-          xpGained = Math.floor(xpGained * 3);
-        }
-        levelUp = addXP(profile, xpGained);
-        equipLvlUps = addEquipXP(profile, activeTeam, false);
-        markText = `**${profile.huntMarks || 0}** (+0)`;
       } else {
-        statusText = 'Defeat';
-        embedColor = '#F44336';
+        let tierXpMult = 1.0;
+        let tierGoldMult = 1.0;
+        if (monster.tier === 'enchanted') { tierXpMult = 1.5; tierGoldMult = 1.5; }
+        else if (monster.tier === 'blessed') { tierXpMult = 2.5; tierGoldMult = 2.5; }
+        else if (monster.tier === 'overpowered') { tierXpMult = 4.0; tierGoldMult = 4.0; }
+        else if (monster.tier === 'chronicle') { tierXpMult = 8.0; tierGoldMult = 8.0; }
+        else if (monster.tier === 'prodigy') { tierXpMult = 15.0; tierGoldMult = 15.0; }
+        else if (monster.tier === 'beyond') { tierXpMult = 30.0; tierGoldMult = 30.0; }
 
-        xpGained = Math.floor((Math.floor(monster.xpMin * 0.2) || 1) * tierXpMult * levelMultiplier);
-        xpGained = Math.floor(xpGained * diffMult);
-        if (hasF6Onfield) {
-          xpGained = Math.floor(xpGained * 3);
+        // Apply Power Scaling (PS) difficulty nerf multiplier (up to 80% nerf at PS 120)
+        const psScale = Math.min(120, Math.max(1, ps));
+        const diffMult = 1.0 - ((psScale - 1) / 119) * 0.8;
+
+        if (battle.result === 'victory') {
+          statusText = 'Victory';
+          embedColor = monster.tier === 'beyond' ? '#1A0D3D' : monster.tier === 'prodigy' ? '#FF6B00' : monster.tier === 'chronicle' ? '#8A2BE2' : monster.tier === 'overpowered' ? '#FF5722' : '#4CAF50';
+          
+          const bonuses = getTierBaseRewardBonuses(monster.tier);
+          xpGained = Math.floor((Math.floor(Math.random() * (monster.xpMax - monster.xpMin + 1)) + monster.xpMin + bonuses.xp) * tierXpMult * levelMultiplier);
+          goldGained = Math.floor((Math.floor(Math.random() * (monster.goldMax - monster.goldMin + 1)) + monster.goldMin + bonuses.gold) * tierGoldMult * levelMultiplier);
+
+          xpGained = Math.floor(xpGained * diffMult);
+          goldGained = Math.floor(goldGained * diffMult);
+          
+          if (hasF6Onfield) {
+            xpGained = Math.floor(xpGained * 3);
+            goldGained = Math.floor(goldGained * 3);
+          }
+          
+          // Goblin gold multiplier
+          const goblinMult = getGoblinGoldMultiplier(profile, activeTeam);
+          goldGained = Math.floor(goldGained * goblinMult);
+
+          // Midas Touch check (+20% Gold from victory for Golden Kukri Lv 10 onfield)
+          const onfieldWeapon = activeTeam && activeTeam.onfield ? gameData.findWeaponByName(activeTeam.onfield.weapon) : null;
+          const getWpLvl = (wpName) => {
+            if (!wpName) return 1;
+            return (profile.weaponLevels && profile.weaponLevels[wpName] ? profile.weaponLevels[wpName].level : 1) || 1;
+          };
+          const onfieldLvl = onfieldWeapon ? getWpLvl(onfieldWeapon.name) : 1;
+          if (onfieldWeapon && onfieldWeapon.name === 'Golden Kukri' && onfieldLvl >= 10) {
+            hasMidasTouch = true;
+            goldGained = Math.floor(goldGained * 1.20);
+          }
+
+          // Midas Strike check (+30% Gold from victory for Golden Kukri Forge >= 4 equipped in active team)
+          let hasMidasStrike = false;
+          const getWpForgeLocal = (wpName) => {
+            if (!wpName) return 0;
+            return (profile.weaponLevels && profile.weaponLevels[wpName] ? profile.weaponLevels[wpName].forge : 0) || 0;
+          };
+          for (const slot of ['onfield', 'offfield1', 'offfield2']) {
+            if (activeTeam && activeTeam[slot] && activeTeam[slot].weapon === 'Golden Kukri') {
+              if (getWpForgeLocal('Golden Kukri') >= 4) {
+                hasMidasStrike = true;
+              }
+            }
+          }
+          if (hasMidasStrike) {
+            goldGained = Math.floor(goldGained * 1.30);
+          }
+
+          forgeLevelUp = false;
+          newForgeLevel = 0;
+          if (Math.random() <= monster.tameRate && !['chronicle', 'prodigy', 'beyond'].includes(monster.tier)) {
+            tamed = true;
+            if (!profile.dex.monsters.includes(monster.name)) {
+              profile.dex.monsters.push(monster.name);
+            } else {
+              isDuplicate = true;
+            }
+
+            const newlyUnlockedKirin = checkAndUnlockKirin(profile);
+            if (newlyUnlockedKirin) {
+              kirinUnlocked = true;
+            }
+
+            if (isDuplicate) {
+              if (!profile.monsterLevels[monster.name]) {
+                profile.monsterLevels[monster.name] = { level: 1, xp: 0, enchanted: 0 };
+              }
+              const mData = profile.monsterLevels[monster.name];
+              mData.enchanted = mData.enchanted || mData.forge || 0;
+              delete mData.forge;
+
+              if (mData.enchanted < 6) {
+                mData.enchanted += 1;
+                newForgeLevel = mData.enchanted;
+                forgeLevelUp = true;
+              } else {
+                tameGoldBonus = Math.floor(goldGained * 0.5);
+                profile.currency += tameGoldBonus;
+              }
+            }
+          }
+
+          profile.currency += goldGained;
+          levelUp = addXP(profile, xpGained);
+          equipLvlUps = addEquipXP(profile, activeTeam, true);
+
+          // Dynamic Elemental Stone rewards for Overpowered+ wins in manual hunt
+          const tierLower = monster.tier.toLowerCase();
+          if (tierLower === 'beyond') {
+            if (monster.name === 'Ancient Dragon') {
+              stoneReward = 10;
+            } else {
+              stoneReward = 3;
+            }
+          } else if (tierLower === 'prodigy') {
+            if (Math.random() < 0.70) stoneReward = 1;
+          } else if (tierLower === 'chronicle') {
+            if (Math.random() < 0.40) stoneReward = 1;
+          } else if (tierLower === 'overpowered') {
+            if (Math.random() < 0.20) stoneReward = 1;
+          }
+
+          if (stoneReward > 0) {
+            profile.elementalStones = (profile.elementalStones || 0) + stoneReward;
+          }
+          
+          // Hunt Marks: Win +1, OP Win +3
+          if (monster.tier === 'beyond') {
+            profile.huntMarks = (profile.huntMarks || 0) + 20;
+            markText = `**${profile.huntMarks}** (+20 Beyond bonus 💀)`;
+          } else if (monster.tier === 'prodigy') {
+            profile.huntMarks = (profile.huntMarks || 0) + 10;
+            markText = `**${profile.huntMarks}** (+10 Prodigy bonus ⚡)`;
+          } else if (monster.tier === 'chronicle') {
+            profile.huntMarks = (profile.huntMarks || 0) + 5;
+            markText = `**${profile.huntMarks}** (+5 Chronicle bonus 📖)`;
+          } else if (monster.tier === 'overpowered') {
+            profile.huntMarks = (profile.huntMarks || 0) + 3;
+            markText = `**${profile.huntMarks}** (+3 OP bonus)`;
+          } else {
+            profile.huntMarks = (profile.huntMarks || 0) + 1;
+            markText = `**${profile.huntMarks}** (+1)`;
+          }
+        } else if (battle.result === 'draw') {
+          statusText = 'Draw';
+          embedColor = '#9E9E9E';
+
+          xpGained = Math.floor((Math.floor(monster.xpMin * 0.2) || 1) * tierXpMult * levelMultiplier);
+          xpGained = Math.floor(xpGained * diffMult);
+          if (hasF6Onfield) {
+            xpGained = Math.floor(xpGained * 3);
+          }
+          levelUp = addXP(profile, xpGained);
+          equipLvlUps = addEquipXP(profile, activeTeam, false);
+          markText = `**${profile.huntMarks || 0}** (+0)`;
+        } else {
+          statusText = 'Defeat';
+          embedColor = '#F44336';
+
+          xpGained = Math.floor((Math.floor(monster.xpMin * 0.2) || 1) * tierXpMult * levelMultiplier);
+          xpGained = Math.floor(xpGained * diffMult);
+          if (hasF6Onfield) {
+            xpGained = Math.floor(xpGained * 3);
+          }
+          levelUp = addXP(profile, xpGained);
+          equipLvlUps = addEquipXP(profile, activeTeam, false);
+          profile.huntMarks = 0;
+          markText = `**0** (Reset)`;
         }
-        levelUp = addXP(profile, xpGained);
-        equipLvlUps = addEquipXP(profile, activeTeam, false);
-        profile.huntMarks = 0;
-        markText = `**0** (Reset)`;
       }
 
       profile.totalDamage = (profile.totalDamage || 0) + battle.totalDamageDealt;
@@ -1819,56 +1871,66 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
       await firebase.saveUser(userId, profile);
 
       // Calculate scaled monster stats for display
-      let tierHpMult = 1.0;
-      let tierAtkMult = 1.0;
-      let tierDefMult = 1.0;
-      if (monster.tier === 'blessed') {
-        tierHpMult = 1.5;
-        tierAtkMult = 1.3;
-        tierDefMult = 1.2;
-      } else if (monster.tier === 'enchanted') {
-        tierHpMult = 2.0;
-        tierAtkMult = 1.6;
-        tierDefMult = 1.3;
-      } else if (monster.tier === 'overpowered') {
-        tierHpMult = 3.0;
-        tierAtkMult = 2.5;
-        tierDefMult = 1.5;
-      } else if (monster.tier === 'chronicle') {
-        tierHpMult = 6.0;
-        tierAtkMult = 15.0;
-        tierDefMult = 8.0;
-      } else if (monster.tier === 'prodigy') {
-        tierHpMult = 15.0;
-        tierAtkMult = 35.0;
-        tierDefMult = 15.0;
-      } else if (monster.tier === 'beyond') {
-        tierHpMult = 30.0;
-        tierAtkMult = 60.0;
-        tierDefMult = 30.0;
-      }
+      let tierHp, tierAtk, tierDef, spawnRate, capitalizedTier;
+      if (isBeyondMode) {
+        tierHp = monster.hp;
+        tierAtk = monster.atk;
+        tierDef = monster.def;
+        spawnRate = '100.0%';
+        capitalizedTier = 'TX';
+      } else {
+        let tierHpMult = 1.0;
+        let tierAtkMult = 1.0;
+        let tierDefMult = 1.0;
+        if (monster.tier === 'blessed') {
+          tierHpMult = 1.5;
+          tierAtkMult = 1.3;
+          tierDefMult = 1.2;
+        } else if (monster.tier === 'enchanted') {
+          tierHpMult = 2.0;
+          tierAtkMult = 1.6;
+          tierDefMult = 1.3;
+        } else if (monster.tier === 'overpowered') {
+          tierHpMult = 3.0;
+          tierAtkMult = 2.5;
+          tierDefMult = 1.5;
+        } else if (monster.tier === 'chronicle') {
+          tierHpMult = 6.0;
+          tierAtkMult = 15.0;
+          tierDefMult = 8.0;
+        } else if (monster.tier === 'prodigy') {
+          tierHpMult = 15.0;
+          tierAtkMult = 35.0;
+          tierDefMult = 15.0;
+        } else if (monster.tier === 'beyond') {
+          tierHpMult = 30.0;
+          tierAtkMult = 60.0;
+          tierDefMult = 30.0;
+        }
 
-      const hpMult = 1 + (ps - 1) * 0.14;
-      const tierHp = Math.floor((monster.hp * hpMult + (ps - 1) * 75 * (profile.level / 20)) * tierHpMult * levelMultiplier);
-      
-      const atkMult = 1 + (ps - 1) * 0.06;
-      const tierAtk = Math.floor(monster.atk * atkMult * tierAtkMult);
-      
-      const tierDef = Math.floor(monster.def * tierDefMult);
-      const spawnRate = getMonsterTierSpawnRate(monster.tier, ps, profile.lobbyThreatOffset || 0);
-      const threatNum = monster.threat.replace('threat', '');
-      const capitalizedTier = monster.tier.charAt(0).toUpperCase() + monster.tier.slice(1);
+        const hpMult = 1 + (ps - 1) * 0.14;
+        tierHp = Math.floor((monster.hp * hpMult + (ps - 1) * 75 * (profile.level / 20)) * tierHpMult * levelMultiplier);
+        
+        const atkMult = 1 + (ps - 1) * 0.06;
+        tierAtk = Math.floor(monster.atk * atkMult * tierAtkMult);
+        
+        const tierDef = Math.floor(monster.def * tierDefMult);
+        spawnRate = getMonsterTierSpawnRate(monster.tier, ps, profile.lobbyThreatOffset || 0);
+        capitalizedTier = monster.tier.charAt(0).toUpperCase() + monster.tier.slice(1);
+      }
 
       const teamName = activeTeam.name || `Team ${profile.activeTeamIndex + 1}`;
       embed.setTitle(teamName).setColor(embedColor);
 
       // Add double-column fields
-      const battleInfoText = `• **Monster**: ${monster.name}\n• **Threat**: Threat ${threatNum}\n• **Super-Threat**: ${capitalizedTier}\n• **Status**: ${statusText}`;
-      const monsterStatsText = `• **HP**: ${tierHp}\n• **ATK**: ${tierAtk}\n• **DEF**: ${tierDef}\n• **Spawn Rate**: ${spawnRate}`;
+      const battleInfoText = isBeyondMode
+        ? `• **Monster**: TX Kirin\n• **BY Level**: Level ${profile.beyondLevel}\n• **Status**: ${statusText}`
+        : `• **Monster**: ${monster.name}\n• **Threat**: Threat ${monster.threat.replace('threat', '')}\n• **Super-Threat**: ${capitalizedTier}\n• **Status**: ${statusText}`;
+      const monsterStatsText = `• **HP**: ${tierHp.toLocaleString('id-ID')}\n• **ATK**: ${tierAtk.toLocaleString('id-ID')}\n• **DEF**: ${tierDef.toLocaleString('id-ID')}${isBeyondMode ? '' : `\n• **Spawn Rate**: ${spawnRate}`}`;
 
       embed.addFields(
         { name: '📋 Battle Info', value: battleInfoText, inline: true },
-        { name: '📊 Monster Stats', value: monsterStatsText, inline: true },
+        { name: isBeyondMode ? '📊 Kirin Stats' : '📊 Monster Stats', value: monsterStatsText, inline: true },
         { name: '⚜️ Element Resilience', value: `\`\`\`\n${battle.monsterResistances.join(', ')}\n\`\`\``, inline: false },
         { name: '💥 Total Damage', value: `\`\`\`\nTotal Damage: ${battle.totalDamageDealt}\n\`\`\``, inline: false }
       );
@@ -1915,7 +1977,7 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
         return `\`\`\`\n${lines.join('\n')}\n\`\`\``;
       };
 
-      const maxRounds = monster.tier === 'beyond' ? 25 : (monster.tier === 'prodigy' || monster.tier === 'overpowered') ? 20 : monster.tier === 'chronicle' ? 15 : 10;
+      const maxRounds = monster.tier === 'tx' ? 30 : monster.tier === 'beyond' ? 25 : (monster.tier === 'prodigy' || monster.tier === 'overpowered') ? 20 : monster.tier === 'chronicle' ? 15 : 10;
       const outcomeText = `Round: ${battle.roundsPlayed}/${maxRounds} | +${xpGained} XP | +${goldGained} Golds | Hunt Marks: ${profile.huntMarks}`;
       embed.setFooter({ text: outcomeText });
 
@@ -1924,24 +1986,32 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
           { name: '📊 Progress', value: getProgressText(), inline: false }
         );
 
-        if (stoneReward > 0) {
-          embed.addFields(
-            { name: '💎 Drop Bonus', value: `Found **+${stoneReward} Elemental Stone(s)**!`, inline: false }
-          );
-        }
-
-        if (tamed) {
-          if (isDuplicate) {
-            if (forgeLevelUp) {
-              embed.addFields({ name: '👾 Monster Capture', value: `You tamed another **${monster.name}**! It was fused and upgraded to **Enchanted ${newForgeLevel}**!` });
-            } else {
-              embed.addFields({ name: '👾 Monster Capture', value: `You tamed another **${monster.name}** at Max Enchanted (Enchanted 6)! Received duplicate gold converter instead.` });
-            }
-          } else {
-            embed.addFields({ name: '✨ NEW TAME!', value: `You successfully tamed **${monster.name}**! Check your dex and team command to equip it.` });
+        if (isBeyondMode) {
+          embed.addFields({ name: '🎁 Victory Rewards', value: `🔺 **XP**: +${xpGained.toLocaleString('id-ID')}\n🪙 **Gold**: +${goldGained.toLocaleString('id-ID')}\n💎 **Elemental Stones**: +${stoneReward}\n🎯 **Hunt Marks**: +${50 + profile.beyondLevel * 5}` });
+          if (profile.newlyUnlockedConqueror) {
+            embed.addFields({ name: '🏆 Achievement Unlocked!', value: `🌟 **Celestial Conqueror** (Defeated TX Kirin)` });
+            delete profile.newlyUnlockedConqueror;
           }
-          if (kirinUnlocked) {
-            embed.addFields({ name: '🌌 SECRET UNLOCKED!', value: `🎉 You gathered all T1-T6 monsters! **Kirin** (Secret Support Animal) and its signature weapon **Amrita Bell** have joined your collection!` });
+        } else {
+          if (stoneReward > 0) {
+            embed.addFields(
+              { name: '💎 Drop Bonus', value: `Found **+${stoneReward} Elemental Stone(s)**!`, inline: false }
+            );
+          }
+
+          if (tamed) {
+            if (isDuplicate) {
+              if (forgeLevelUp) {
+                embed.addFields({ name: '👾 Monster Capture', value: `You tamed another **${monster.name}**! It was fused and upgraded to **Enchanted ${newForgeLevel}**!` });
+              } else {
+                embed.addFields({ name: '👾 Monster Capture', value: `You tamed another **${monster.name}** at Max Enchanted (Enchanted 6)! Received duplicate gold converter instead.` });
+              }
+            } else {
+              embed.addFields({ name: '✨ NEW TAME!', value: `You successfully tamed **${monster.name}**! Check your dex and team command to equip it.` });
+            }
+            if (kirinUnlocked) {
+              embed.addFields({ name: '🌌 SECRET UNLOCKED!', value: `🎉 You gathered all T1-T6 monsters! **Kirin** (Secret Support Animal) and its signature weapon **Amrita Bell** have joined your collection!` });
+            }
           }
         }
 
@@ -1956,6 +2026,10 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
           { name: '📊 Progress', value: getProgressText(), inline: false }
         );
 
+        if (isBeyondMode) {
+          embed.addFields({ name: '🎁 Rewards', value: `🔺 **XP**: +${xpGained.toLocaleString('id-ID')}` });
+        }
+
         if (levelUp) {
           embed.addFields({ name: '⭐ LEVEL UP!', value: `🎉 Congratulations! You have leveled up to **Level ${profile.level}**!` });
         }
@@ -1966,6 +2040,10 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
         embed.addFields(
           { name: '📊 Progress', value: getProgressText(), inline: false }
         );
+
+        if (isBeyondMode) {
+          embed.addFields({ name: '🎁 Rewards', value: `🔺 **XP**: +${xpGained.toLocaleString('id-ID')}` });
+        }
 
         if (levelUp) {
           embed.addFields({ name: '⭐ LEVEL UP!', value: `🎉 Congratulations! You have leveled up to **Level ${profile.level}**!` });
@@ -3764,7 +3842,7 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
   if (command === 'by') {
     try {
       if (args.length === 0) {
-        return message.reply(`📋 **Beyond Commands Usage:**\n• \`${effectivePrefix}by info\` - Check Beyond Threat Level status and TX Kirin stats\n• \`${effectivePrefix}by up\` - Upgrade Beyond Threat Level (+1, costs 300 Elemental Stones)\n• \`${effectivePrefix}by fight\` - Fight the TX Kirin boss scaled to your Beyond Level`);
+        return message.reply(`📋 **Beyond Commands Usage:**\n• \`${effectivePrefix}by info\` - Check Beyond Threat Level status and TX Kirin stats\n• \`${effectivePrefix}by up\` - Upgrade Beyond Threat Level (+1, costs 300 Elemental Stones)`);
       }
 
       const subCommand = args[0].toLowerCase();
@@ -3829,246 +3907,9 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
         return message.reply({ embeds: [embed] });
 
       } else if (subCommand === 'fight') {
-        if (!profile.killedBeyondT6) {
-          return message.reply(`❌ Prerequisite not met! You must defeat Beyond T6 monsters first.`);
-        }
-
-        const byLevel = profile.beyondLevel || 0;
-        if (byLevel < 1) {
-          return message.reply(`❌ You must upgrade your Beyond Threat Level to at least **Level 1** using \`'by up\` (costs 300 Elemental Stones) to challenge TX Kirin!`);
-        }
-
-        // Check Hunt cooldown
-        const remaining = checkCooldown(userId, 'hunt');
-        if (remaining) {
-          return message.reply(`⏳ You are exhausted from hunting! Please wait **${remaining}s** before trying again.`);
-        }
-
-        const activeTeam = getActiveTeam(profile);
-        const playerStats = gameData.getUserStats(profile.level, activeTeam, profile.monsterLevels, profile.weaponLevels);
-        const ps = gameData.getPowerScaling(activeTeam, profile.monsterLevels, profile.weaponLevels, profile.level);
-
-        // Get TX Kirin monster data dynamically
-        const kirinMonsterObj = gameData.getTXKirinStats(byLevel, profile.level, ps);
-
-        // Simulate Battle
-        const battle = gameData.simulateBattle(
-          playerStats,
-          kirinMonsterObj,
-          activeTeam,
-          profile.weaponLevels,
-          profile.monsterLevels
-        );
-
-        // Compute rewards on victory
-        let xpGained = 0;
-        let goldGained = 0;
-        let stonesGained = 0;
-        let marksGained = 0;
-        let statusText = 'Draw';
-        let embedColor = '#9E9E9E';
-
-        const levelMultiplier = 1 + (profile.level - 1) * 0.1;
-        
-        if (battle.won) {
-          statusText = 'Victory';
-          embedColor = '#4CAF50';
-          xpGained = Math.floor(2000 * byLevel * levelMultiplier);
-          goldGained = Math.floor(5000 * byLevel * levelMultiplier);
-          stonesGained = 5 + byLevel;
-          marksGained = 50 + byLevel * 5;
-
-          profile.currency = (profile.currency || 0) + goldGained;
-          profile.elementalStones = (profile.elementalStones || 0) + stonesGained;
-          profile.huntMarks = (profile.huntMarks || 0) + marksGained;
-          profile.killedTXKirin = true;
-        } else if (battle.result === 'draw') {
-          statusText = 'Draw';
-          embedColor = '#9E9E9E';
-          xpGained = Math.floor((10 + Math.floor(Math.random() * 20)) * levelMultiplier);
-        } else {
-          statusText = 'Defeat';
-          embedColor = '#F44336';
-          xpGained = Math.floor((10 + Math.floor(Math.random() * 20)) * levelMultiplier);
-        }
-
-        // Add equipment/weapon XP
-        const equipLvlUps = addEquipXP(profile, activeTeam, battle.won);
-        
-        // Add player XP (handles level ups)
-        const levelUp = addXP(profile, xpGained);
-
-        profile.totalDamage = (profile.totalDamage || 0) + battle.totalDamageDealt;
-
-        await firebase.saveUser(userId, profile);
-
-        const embed = new EmbedBuilder().setAuthor({ name: `${message.author.username}'s Beyond Fight`, iconURL: message.author.displayAvatarURL() });
-
-        const huntLayout = (profile.settings && profile.settings.huntLayout) || 'informative';
-        let pages = [];
-        let currentPageIndex = 0;
-        let renderEmbedDescription = null;
-
-        if (huntLayout === 'simple') {
-          // Simple layout doesn't show battle rounds in description
-        } else {
-          pages = chunkBattleRounds(battle.rounds, 4);
-          currentPageIndex = pages.length - 1;
-
-          renderEmbedDescription = (pageIdx) => {
-            return `**Battle Summary (Page ${pageIdx + 1}/${pages.length}):**\n\`\`\`\n${pages[pageIdx]}\n\`\`\``;
-          };
-          
-          embed.setDescription(renderEmbedDescription(currentPageIndex));
-        }
-
-        const teamName = activeTeam.name || `Team ${profile.activeTeamIndex + 1}`;
-        embed.setTitle(teamName).setColor(embedColor);
-
-        // Add double-column fields
-        const battleInfoText = `• **Monster**: TX Kirin\n• **BY Level**: Level ${byLevel}\n• **Status**: ${statusText}`;
-        const monsterStatsText = `• **HP**: ${kirinMonsterObj.hp.toLocaleString('id-ID')}\n• **ATK**: ${kirinMonsterObj.atk.toLocaleString('id-ID')}\n• **DEF**: ${kirinMonsterObj.def.toLocaleString('id-ID')}`;
-
-        embed.addFields(
-          { name: '📋 Battle Info', value: battleInfoText, inline: true },
-          { name: '📊 Kirin Stats', value: monsterStatsText, inline: true },
-          { name: '⚜️ Element Resilience', value: `\`\`\`\n${battle.monsterResistances.join(', ')}\n\`\`\``, inline: false },
-          { name: '💥 Total Damage', value: `\`\`\`\nTotal Damage: ${battle.totalDamageDealt}\n\`\`\``, inline: false }
-        );
-
-        // Progress block text helper
-        const getProgressText = () => {
-          const lines = [];
-          
-          // 1. Profile
-          const profileXpReq = gameData.getXPRequired(profile.level);
-          const profileBar = getProgressBar(profile.xp, profileXpReq, 10);
-          lines.push(`Level Profile: Level ${profile.level} [${profileBar}] (${profile.xp}/${profileXpReq} XP)`);
-          
-          // 2. Weapon
-          const weaponName = activeTeam.onfield.weapon;
-          if (weaponName) {
-            const wData = profile.weaponLevels[weaponName] || { level: 1, xp: 0 };
-            if (wData.level >= 30) {
-              lines.push(`Level Weapon: Level 30/30 [██████████] (MAX)`);
-            } else {
-              const wXpReq = wData.level * 50;
-              const wBar = getProgressBar(wData.xp, wXpReq, 10);
-              lines.push(`Level Weapon: Level ${wData.level}/30 [${wBar}] (${wData.xp}/${wXpReq} XP)`);
-            }
-          } else {
-            lines.push(`Level Weapon: None`);
-          }
-          
-          // 3. Monster
-          const monsterName = activeTeam.onfield.monster;
-          if (monsterName) {
-            const mData = profile.monsterLevels[monsterName] || { level: 1, xp: 0 };
-            if (mData.level >= 20) {
-              lines.push(`Level Monster: Level 20/20 [██████████] (MAX)`);
-            } else {
-              const mXpReq = mData.level * 50;
-              const mBar = getProgressBar(mData.xp, mXpReq, 10);
-              lines.push(`Level Monster: Level ${mData.level}/20 [${mBar}] (${mData.xp}/${mXpReq} XP)`);
-            }
-          } else {
-            lines.push(`Level Monster: None`);
-          }
-          
-          return `\`\`\`\n${lines.join('\n')}\n\`\`\``;
-        };
-
-        const outcomeText = `Round: ${battle.roundsPlayed}/30 | +${xpGained} XP | +${goldGained} Golds | Hunt Marks: ${profile.huntMarks}`;
-        embed.setFooter({ text: outcomeText });
-
-        embed.addFields({ name: '📊 Progress', value: getProgressText(), inline: false });
-
-        if (battle.won) {
-          embed.addFields({ name: '🎁 Victory Rewards', value: `🔺 **XP**: +${xpGained.toLocaleString('id-ID')}\n🪙 **Gold**: +${goldGained.toLocaleString('id-ID')}\n💎 **Elemental Stones**: +${stonesGained}\n🎯 **Hunt Marks**: +${marksGained}` });
-          
-          // Achievements check
-          if (!profile.unlockedAchievements?.includes('celestial_conqueror')) {
-            profile.unlockedAchievements = profile.unlockedAchievements || [];
-            profile.unlockedAchievements.push('celestial_conqueror');
-            await firebase.saveUser(userId, profile);
-            embed.addFields({ name: '🏆 Achievement Unlocked!', value: `🌟 **Celestial Conqueror** (Defeated TX Kirin)` });
-          }
-        } else {
-          embed.addFields({ name: '🎁 Rewards', value: `🔺 **XP**: +${xpGained.toLocaleString('id-ID')}` });
-        }
-
-        if (levelUp) {
-          embed.addFields({ name: '⭐ LEVEL UP!', value: `🎉 Congratulations! You have leveled up to **Level ${profile.level}**!` });
-        }
-        if (equipLvlUps && equipLvlUps.length > 0) {
-          embed.addFields({ name: '📈 Equipment Level Up!', value: equipLvlUps.join('\n') });
-        }
-
-        const sentMessage = await message.reply({ embeds: [embed] });
-
-        if (huntLayout === 'informative' && pages.length > 1) {
-          const prevCustomId = `by_prev_${userId}_${Date.now()}`;
-          const nextCustomId = `by_next_${userId}_${Date.now()}`;
-          
-          const getRow = () => {
-            return new ActionRowBuilder()
-              .addComponents(
-                new ButtonBuilder()
-                  .setCustomId(prevCustomId)
-                  .setLabel('⬅️ Previous')
-                  .setStyle(ButtonStyle.Primary)
-                  .setDisabled(currentPageIndex === 0),
-                new ButtonBuilder()
-                  .setCustomId(nextCustomId)
-                  .setLabel('Next ➡️')
-                  .setStyle(ButtonStyle.Primary)
-                  .setDisabled(currentPageIndex === pages.length - 1)
-              );
-          };
-
-          await sentMessage.edit({ components: [getRow()] }).catch(() => {});
-
-          const filter = (i) => i.user.id === userId && (i.customId === prevCustomId || i.customId === nextCustomId);
-          const collector = sentMessage.createMessageComponentCollector({ filter, time: 60000 });
-
-          collector.on('collect', async (i) => {
-            try {
-              if (i.customId === prevCustomId) {
-                if (currentPageIndex > 0) currentPageIndex--;
-              } else if (i.customId === nextCustomId) {
-                if (currentPageIndex < pages.length - 1) currentPageIndex++;
-              }
-
-              await i.update({
-                embeds: [embed.setDescription(renderEmbedDescription(currentPageIndex))],
-                components: [getRow()]
-              });
-            } catch (err) {
-              console.error('[Button Collector Error]', err);
-            }
-          });
-
-          collector.on('end', () => {
-            const disabledRow = new ActionRowBuilder()
-              .addComponents(
-                new ButtonBuilder()
-                  .setCustomId(prevCustomId)
-                  .setLabel('⬅️ Previous')
-                  .setStyle(ButtonStyle.Primary)
-                  .setDisabled(true),
-                new ButtonBuilder()
-                  .setCustomId(nextCustomId)
-                  .setLabel('Next ➡️')
-                  .setStyle(ButtonStyle.Primary)
-                  .setDisabled(true)
-              );
-            sentMessage.edit({ components: [disabledRow] }).catch(() => {});
-          });
-        }
-        return;
-
+        return message.reply(`❌ The \`by fight\` command has been retired. Please challenge the TX Kirin boss using the standard \`${effectivePrefix}hunt\` command!`);
       } else {
-        return message.reply(`❌ Invalid sub-command. Did you mean: \`${effectivePrefix}by info\`, \`${effectivePrefix}by up\`, or \`${effectivePrefix}by fight\`?`);
+        return message.reply(`❌ Invalid sub-command. Did you mean: \`${effectivePrefix}by info\` or \`${effectivePrefix}by up\`?`);
       }
 
     } catch (err) {
