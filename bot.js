@@ -4050,8 +4050,8 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
         return message.reply(`❌ The target user does not have an active RPG profile yet.`);
       }
 
-      const isWhitelisted = ['661135501226672129', '735711123978059826'].includes(targetId);
-      if (receiverProfile.giftBlockedUntil && Date.now() < receiverProfile.giftBlockedUntil && !isWhitelisted) {
+      const isSenderWhitelisted = ['661135501226672129', '735711123978059826'].includes(authorId);
+      if (receiverProfile.giftBlockedUntil && Date.now() < receiverProfile.giftBlockedUntil && !isSenderWhitelisted) {
         const remainingMs = receiverProfile.giftBlockedUntil - Date.now();
         const minutes = Math.floor(remainingMs / 60000);
         const seconds = Math.floor((remainingMs % 60000) / 1000);
@@ -5015,8 +5015,7 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
         return message.reply({ embeds: [embed] });
       } else {
         profile.currency -= betAmount;
-        const isBypass = userId === creatorId || userId === '735711123978059826';
-        if (isAllIn && !isBypass) {
+        if (isAllIn) {
           profile.giftBlockedUntil = Date.now() + 3600000; // 1 hour penalty
         }
         await firebase.saveUser(userId, profile);
@@ -5033,7 +5032,7 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
           .setColor('#9E9E9E')
           .setDescription(`You pulled the lever with a bet of **${betAmount.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".")}** gold!\n\n${gridText}`)
           .addFields(
-            { name: 'Result', value: `💀 **NO MATCH!** Better luck next time!\nLost **${betAmount.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".")}** gold.${isAllIn && !isBypass ? '\n⚠️ **All-In Penalty**: You are blocked from receiving gifts (\`\'give\`) for 1 hour!' : ''}`, inline: false },
+            { name: 'Result', value: `💀 **NO MATCH!** Better luck next time!\nLost **${betAmount.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".")}** gold.${isAllIn ? '\n⚠️ **All-In Penalty**: You are blocked from receiving gifts (\`\'give\`) for 1 hour!' : ''}`, inline: false },
             { name: 'Your Gold Balance', value: `🪙 **${profile.currency.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".")}**`, inline: false }
           )
           .setTimestamp();
