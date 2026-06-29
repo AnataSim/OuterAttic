@@ -398,6 +398,32 @@ const COMMAND_PAYLOADS = [
     ],
     integration_types: [0, 1],
     contexts: [0, 1, 2]
+  },
+  {
+    name: 'voice',
+    description: 'Voice activity system upgrades for passive hunts and loots',
+    integration_types: [0, 1],
+    contexts: [0, 1, 2]
+  },
+  {
+    name: 'give',
+    description: 'Give Gold to another player',
+    options: [
+      {
+        name: 'user',
+        description: 'The player to give Gold to',
+        type: 6, // USER
+        required: true
+      },
+      {
+        name: 'amount',
+        description: 'The amount of Gold to give',
+        type: 4, // INTEGER
+        required: true
+      }
+    ],
+    integration_types: [0, 1],
+    contexts: [0, 1, 2]
   }
 ];
 
@@ -1132,271 +1158,305 @@ client.once('ready', async () => {
     console.error('[Bot] Failed to register global slash commands:', err);
   }
 
-  // Start the voice hunt scanner (every 5 minutes)
-  setInterval(runVoiceHuntTick, 5 * 60 * 1000);
-  console.log('[Bot] Voice activity hunt scanner initialized (running every 5 minutes).');
-
-  // Start the voice loot scanner (every 30 minutes)
-  setInterval(runVoiceLootTick, 30 * 60 * 1000);
-  console.log('[Bot] Voice activity loot scanner initialized (running every 30 minutes).');
+  // Start the voice activity tick (every 10 seconds)
+  setInterval(runVoiceTick, 10 * 1000);
+  console.log('[Bot] Voice activity tick initialized (running every 10 seconds).');
 });
 
 // Periodic Voice Scan Hunt Tick (Every 5 minutes)
 async function runVoiceHuntTick() {
   if (!firebase.isInitialized()) {
     console.warn('[Voice Hunt Tick] Skipped because Firebase database is not initialized.');
-    return;
-  }
-
-  console.log('[Voice Hunt Tick] Scanning server voice channels for hunting...');
-  
-  for (const [guildId, guild] of client.guilds.cache) {
-    try {
-      const activeVoiceUsers = [];
-      await guild.members.fetch();
-      
-      for (const [memberId, member] of guild.members.cache) {
-        if (member.user.bot) continue;
-        
-        const voiceState = member.voice;
-        if (voiceState && voiceState.channelId) {
-          activeVoiceUsers.push(member);
-        }
-      }
-
-      if (activeVoiceUsers.length === 0) continue;
-
-      console.log(`[Voice Hunt Tick] Guild ${guild.name} has ${activeVoiceUsers.length} active players in voice.`);
-
-      const logLines = [];
-
-      for (const member of activeVoiceUsers) {
-        const userId = member.id;
-        const profile = await firebase.getUser(userId);
-        
-        const activeTeam = getActiveTeam(profile);
-        const onfieldWeaponName = activeTeam && activeTeam.onfield ? activeTeam.onfield.weapon : null;
-        const getWpForge = (wpName) => {
-          if (!wpName) return 0;
-          return (profile.weaponLevels && profile.weaponLevels[wpName] ? profile.weaponLevels[wpName].forge : 0) || 0;
-        };
-        const onfieldForge = getWpForge(onfieldWeaponName);
-        const hasF6Onfield = onfieldForge >= 6;
-
-        const ps = gameData.getPowerScaling(activeTeam, profile.monsterLevels, profile.weaponLevels, profile.level);
-        // Apply Power Scaling (PS) difficulty nerf multiplier (up to 80% nerf at PS 120)
-        const psScale = Math.min(120, Math.max(1, ps));
-        const diffMult = 1.0 - ((psScale - 1) / 119) * 0.8;
-
-        const playerStats = gameData.getUserStats(profile.level, activeTeam, profile.monsterLevels, profile.weaponLevels);
-
-        // 1. HUNT LOGIC
-        const monster = gameData.getRandomMonster(ps, profile.level, profile.lobbyThreatOffset || 0);
-        const battle = gameData.simulateBattle(playerStats, monster, activeTeam, profile.weaponLevels, profile.monsterLevels);
-        const threatLabel = `Threat ${monster.threat.replace('threat', '')}`;
-        
-        let xpGained = 0;
-        let goldGained = 0;
-        let huntOutcome = '';
-        let stoneReward = 0;
-
-        if (battle.result === 'victory') {
-          const levelMultiplier = 1 + (profile.level - 1) * 0.1;
-          let tierXpMult = 1.0;
-          let tierGoldMult = 1.0;
-          if (monster.tier === 'enchanted') { tierXpMult = 1.5; tierGoldMult = 1.5; }
-          else if (monster.tier === 'blessed') { tierXpMult = 2.5; tierGoldMult = 2.5; }
-          else if (monster.tier === 'overpowered') { tierXpMult = 4.0; tierGoldMult = 4.0; }
-          else if (monster.tier === 'chronicle') { tierXpMult = 8.0; tierGoldMult = 8.0; }
-          else if (monster.tier === 'prodigy') { tierXpMult = 15.0; tierGoldMult = 15.0; }
-          else if (monster.tier === 'beyond') { tierXpMult = 30.0; tierGoldMult = 30.0; }
-
-          const bonuses = getTierBaseRewardBonuses(monster.tier);
-          xpGained = Math.floor((Math.floor(Math.random() * (monster.xpMax - monster.xpMin + 1)) + monster.xpMin + bonuses.xp) * tierXpMult * levelMultiplier);
-          goldGained = Math.floor((Math.floor(Math.random() * (monster.goldMax - monster.goldMin + 1)) + monster.goldMin + bonuses.gold) * tierGoldMult * levelMultiplier);
-
-          xpGained = Math.floor(xpGained * diffMult);
-          goldGained = Math.floor(goldGained * diffMult);
-
-          if (hasF6Onfield) {
-            xpGained = Math.floor(xpGained * 3);
-            goldGained = Math.floor(goldGained * 3);
-          }
-          
-          const goblinMult = getGoblinGoldMultiplier(profile, activeTeam);
-          goldGained = Math.floor(goldGained * goblinMult);
-
-          // Dynamic Elemental Stone rewards for Overpowered+ wins (moved from old Loot logic of runVoiceTick)
-          const tierLower = monster.tier.toLowerCase();
-          if (tierLower === 'beyond') {
-            if (monster.name === 'Ancient Dragon') {
-              stoneReward = 10;
-            } else {
-              stoneReward = 3;
-            }
-          } else if (tierLower === 'prodigy') {
-            if (Math.random() < 0.70) stoneReward = 1;
-          } else if (tierLower === 'chronicle') {
-            if (Math.random() < 0.40) stoneReward = 1;
-          } else if (tierLower === 'overpowered') {
-            if (Math.random() < 0.20) stoneReward = 1;
-          }
-
-          if (stoneReward > 0) {
-            profile.elementalStones = (profile.elementalStones || 0) + stoneReward;
-          }
-
-          profile.currency += goldGained;
-          const levelUp = addXP(profile, xpGained);
-          huntOutcome = `⚔️ Victory vs **${monster.displayName || monster.name}** (${threatLabel}) (+${goldGained} Gold, +${xpGained} XP)`;
-
-          let tamed = false;
-          let isDuplicate = false;
-          let tameGoldBonus = 0;
-          let forgeLevelUp = false;
-          let newForgeLevel = 0;
-          let kirinUnlocked = false;
-
-          if (Math.random() <= monster.tameRate && !['chronicle', 'prodigy', 'beyond'].includes(monster.tier)) {
-            tamed = true;
-            if (!profile.dex.monsters.includes(monster.name)) {
-              profile.dex.monsters.push(monster.name);
-            } else {
-              isDuplicate = true;
-            }
-
-            const newlyUnlockedKirin = checkAndUnlockKirin(profile);
-            if (newlyUnlockedKirin) {
-              kirinUnlocked = true;
-            }
-
-            if (isDuplicate) {
-              if (!profile.monsterLevels[monster.name]) {
-                profile.monsterLevels[monster.name] = { level: 1, xp: 0, enchanted: 0 };
-              }
-              const mData = profile.monsterLevels[monster.name];
-              mData.enchanted = mData.enchanted || mData.forge || 0;
-              delete mData.forge;
-
-              if (mData.enchanted < 6) {
-                mData.enchanted += 1;
-                newForgeLevel = mData.enchanted;
-                forgeLevelUp = true;
-              } else {
-                tameGoldBonus = Math.floor(goldGained * 0.5);
-                profile.currency += tameGoldBonus;
-              }
-            }
-
-            if (isDuplicate) {
-              if (forgeLevelUp) {
-                huntOutcome += ` (👾 Tamed duplicate! Upgraded to Enchanted ${newForgeLevel})`;
-              } else {
-                huntOutcome += ` (Already tamed at Max Enchanted! Converted +${tameGoldBonus} Gold)`;
-              }
-            } else {
-              huntOutcome += ` (✨ TAMED **${monster.name}**!)`;
-            }
-            if (kirinUnlocked) {
-              huntOutcome += `\n    └ 🌌 **SECRET UNLOCKED!** You gathered all T1-T6 monsters! **Kirin** (Secret Support Animal) and its signature weapon **Amrita Bell** have joined your collection!`;
-            }
-          }
-          if (stoneReward > 0) {
-            huntOutcome += ` (💎 Found +${stoneReward} Elemental Stone(s)!)`;
-          }
-          if (levelUp) {
-            huntOutcome += ` 🌟 **Leveled Up to Lv.${profile.level}!**`;
-          }
-        } else if (battle.result === 'draw') {
-          const levelMultiplier = 1 + (profile.level - 1) * 0.1;
-          let tierXpMult = 1.0;
-          if (monster.tier === 'enchanted') tierXpMult = 1.5;
-          else if (monster.tier === 'blessed') tierXpMult = 2.5;
-          else if (monster.tier === 'overpowered') tierXpMult = 4.0;
-          else if (monster.tier === 'chronicle') tierXpMult = 8.0;
-          else if (monster.tier === 'prodigy') tierXpMult = 15.0;
-          else if (monster.tier === 'beyond') tierXpMult = 30.0;
-
-          xpGained = Math.floor((Math.floor(monster.xpMin * 0.2) || 1) * tierXpMult * levelMultiplier);
-          xpGained = Math.floor(xpGained * diffMult);
-          if (hasF6Onfield) {
-            xpGained = Math.floor(xpGained * 3);
-          }
-          const levelUp = addXP(profile, xpGained);
-          huntOutcome = `💨 Draw vs **${monster.displayName || monster.name}** (${threatLabel}) (+${xpGained} XP)`;
-          if (levelUp) {
-            huntOutcome += ` 🌟 **Leveled Up to Lv.${profile.level}!**`;
-          }
-        } else {
-          // Lost battle consolation rewards
-          const levelMultiplier = 1 + (profile.level - 1) * 0.1;
-          let tierXpMult = 1.0;
-          if (monster.tier === 'enchanted') tierXpMult = 1.5;
-          else if (monster.tier === 'blessed') tierXpMult = 2.5;
-          else if (monster.tier === 'overpowered') tierXpMult = 4.0;
-          else if (monster.tier === 'chronicle') tierXpMult = 8.0;
-          else if (monster.tier === 'prodigy') tierXpMult = 15.0;
-          else if (monster.tier === 'beyond') tierXpMult = 30.0;
-
-          xpGained = Math.floor((Math.floor(monster.xpMin * 0.2) || 1) * tierXpMult * levelMultiplier);
-          xpGained = Math.floor(xpGained * diffMult);
-          if (hasF6Onfield) {
-            xpGained = Math.floor(xpGained * 3);
-          }
-          const levelUp = addXP(profile, xpGained);
-          huntOutcome = `💀 Lost to **${monster.displayName || monster.name}** (${threatLabel}) (+${xpGained} XP)`;
-          if (levelUp) {
-            huntOutcome += ` 🌟 **Leveled Up to Lv.${profile.level}!**`;
-          }
-        }
-
-        const equipLvlUps = addEquipXP(profile, activeTeam, battle.won);
-        if (equipLvlUps.length > 0) {
-          huntOutcome += `\n    └ 📈 ${equipLvlUps.join(', ')}`;
-        }
-
-        profile.totalDamage = (profile.totalDamage || 0) + battle.totalDamageDealt;
-        if (battle.won && monster.tier === 'beyond' && monster.threat === 'threat6') {
-          profile.killedBeyondT6 = true;
-        }
-
-        // Save progress
-        await firebase.saveUser(userId, profile);
-
-        // Format result log
-        logLines.push(`• <@${userId}> **Lv.${profile.level}**:\n  └ ${huntOutcome}`);
-      }
-
-      const logChannel = await getOrCreateLogChannel(guild);
-      if (logChannel) {
-        const chunkSize = 10;
-        for (let i = 0; i < logLines.length; i += chunkSize) {
-          const chunk = logLines.slice(i, i + chunkSize);
-          const embed = new EmbedBuilder()
-            .setTitle('🔊 Voice Channel Idle Hunt Logs')
-            .setColor('#4CAF50')
-            .setDescription(chunk.join('\n\n'))
-            .setTimestamp();
-          
-          await logChannel.send({ embeds: [embed] });
-        }
-      }
-
-    } catch (err) {
-      console.error(`[Voice Hunt Tick Error] Error processing guild ${guild.name}:`, err);
-    }
-  }
+function getVoiceHuntCooldown(level) {
+  const times = [300, 240, 180, 120, 60, 45, 30, 20, 15, 10];
+  const idx = Math.max(1, Math.min(10, level)) - 1;
+  return times[idx];
 }
 
-// Periodic Voice Scan Loot Tick (Every 30 minutes)
-async function runVoiceLootTick() {
-  if (!firebase.isInitialized()) {
-    console.warn('[Voice Loot Tick] Skipped because Firebase database is not initialized.');
-    return;
+function getVoiceLootCooldown(level) {
+  const times = [1800, 1500, 1200, 900, 600, 300, 120, 60, 30, 10];
+  const idx = Math.max(1, Math.min(10, level)) - 1;
+  return times[idx];
+}
+
+function getVoiceUpgradeCost(currentLevel) {
+  const costs = {
+    1: 50,
+    2: 100,
+    3: 200,
+    4: 500,
+    5: 1000,
+    6: 2000,
+    7: 4500,
+    8: 9250,
+    9: 14750
+  };
+  return costs[currentLevel] || null;
+}
+
+function formatVoiceInterval(seconds) {
+  if (seconds >= 60) {
+    return `${Math.round(seconds / 60)}m`;
+  }
+  return `${seconds}s`;
+}
+
+async function executeSingleVoiceHunt(member, profile) {
+  const activeTeam = getActiveTeam(profile);
+  const onfieldWeaponName = activeTeam && activeTeam.onfield ? activeTeam.onfield.weapon : null;
+  const getWpForge = (wpName) => {
+    if (!wpName) return 0;
+    return (profile.weaponLevels && profile.weaponLevels[wpName] ? profile.weaponLevels[wpName].forge : 0) || 0;
+  };
+  const onfieldForge = getWpForge(onfieldWeaponName);
+  const hasF6Onfield = onfieldForge >= 6;
+
+  const ps = gameData.getPowerScaling(activeTeam, profile.monsterLevels, profile.weaponLevels, profile.level);
+  const psScale = Math.min(120, Math.max(1, ps));
+  const diffMult = 1.0 - ((psScale - 1) / 119) * 0.8;
+
+  const playerStats = gameData.getUserStats(profile.level, activeTeam, profile.monsterLevels, profile.weaponLevels);
+
+  const monster = gameData.getRandomMonster(ps, profile.level, profile.lobbyThreatOffset || 0);
+  const battle = gameData.simulateBattle(playerStats, monster, activeTeam, profile.weaponLevels, profile.monsterLevels);
+  const threatLabel = `Threat ${monster.threat.replace('threat', '')}`;
+  
+  let xpGained = 0;
+  let goldGained = 0;
+  let huntOutcome = '';
+  let stoneReward = 0;
+
+  if (battle.result === 'victory') {
+    const levelMultiplier = 1 + (profile.level - 1) * 0.1;
+    let tierXpMult = 1.0;
+    let tierGoldMult = 1.0;
+    if (monster.tier === 'enchanted') { tierXpMult = 1.5; tierGoldMult = 1.5; }
+    else if (monster.tier === 'blessed') { tierXpMult = 2.5; tierGoldMult = 2.5; }
+    else if (monster.tier === 'overpowered') { tierXpMult = 4.0; tierGoldMult = 4.0; }
+    else if (monster.tier === 'chronicle') { tierXpMult = 8.0; tierGoldMult = 8.0; }
+    else if (monster.tier === 'prodigy') { tierXpMult = 15.0; tierGoldMult = 15.0; }
+    else if (monster.tier === 'beyond') { tierXpMult = 30.0; tierGoldMult = 30.0; }
+
+    const bonuses = getTierBaseRewardBonuses(monster.tier);
+    xpGained = Math.floor((Math.floor(Math.random() * (monster.xpMax - monster.xpMin + 1)) + monster.xpMin + bonuses.xp) * tierXpMult * levelMultiplier);
+    goldGained = Math.floor((Math.floor(Math.random() * (monster.goldMax - monster.goldMin + 1)) + monster.goldMin + bonuses.gold) * tierGoldMult * levelMultiplier);
+
+    xpGained = Math.floor(xpGained * diffMult);
+    goldGained = Math.floor(goldGained * diffMult);
+
+    if (hasF6Onfield) {
+      xpGained = Math.floor(xpGained * 3);
+      goldGained = Math.floor(goldGained * 3);
+    }
+    
+    const goblinMult = getGoblinGoldMultiplier(profile, activeTeam);
+    goldGained = Math.floor(goldGained * goblinMult);
+
+    const tierLower = monster.tier.toLowerCase();
+    if (tierLower === 'beyond') {
+      if (monster.name === 'Ancient Dragon') {
+        stoneReward = 10;
+      } else {
+        stoneReward = 3;
+      }
+    } else if (tierLower === 'prodigy') {
+      if (Math.random() < 0.70) stoneReward = 1;
+    } else if (tierLower === 'chronicle') {
+      if (Math.random() < 0.40) stoneReward = 1;
+    } else if (tierLower === 'overpowered') {
+      if (Math.random() < 0.20) stoneReward = 1;
+    }
+
+    if (stoneReward > 0) {
+      profile.elementalStones = (profile.elementalStones || 0) + stoneReward;
+    }
+
+    profile.currency += goldGained;
+    const levelUp = addXP(profile, xpGained);
+    huntOutcome = `⚔️ Victory vs **${monster.displayName || monster.name}** (${threatLabel}) (+${goldGained.toLocaleString('id-ID')} Gold, +${xpGained.toLocaleString('id-ID')} XP)`;
+
+    let tamed = false;
+    let isDuplicate = false;
+    let tameGoldBonus = 0;
+    let forgeLevelUp = false;
+    let newForgeLevel = 0;
+    let kirinUnlocked = false;
+
+    if (Math.random() <= monster.tameRate && !['chronicle', 'prodigy', 'beyond'].includes(monster.tier)) {
+      tamed = true;
+      if (!profile.dex.monsters.includes(monster.name)) {
+        profile.dex.monsters.push(monster.name);
+      } else {
+        isDuplicate = true;
+      }
+
+      const newlyUnlockedKirin = checkAndUnlockKirin(profile);
+      if (newlyUnlockedKirin) {
+        kirinUnlocked = true;
+      }
+
+      if (isDuplicate) {
+        if (!profile.monsterLevels[monster.name]) {
+          profile.monsterLevels[monster.name] = { level: 1, xp: 0, enchanted: 0 };
+        }
+        const mData = profile.monsterLevels[monster.name];
+        mData.enchanted = mData.enchanted || mData.forge || 0;
+        delete mData.forge;
+
+        if (mData.enchanted < 6) {
+          mData.enchanted += 1;
+          newForgeLevel = mData.enchanted;
+          forgeLevelUp = true;
+        } else {
+          tameGoldBonus = Math.floor(goldGained * 0.5);
+          profile.currency += tameGoldBonus;
+        }
+      }
+
+      if (isDuplicate) {
+        if (forgeLevelUp) {
+          huntOutcome += ` (👾 Tamed duplicate! Upgraded to Enchanted ${newForgeLevel})`;
+        } else {
+          huntOutcome += ` (Already tamed at Max Enchanted! Converted +${tameGoldBonus.toLocaleString('id-ID')} Gold)`;
+        }
+      } else {
+        huntOutcome += ` (✨ TAMED **${monster.name}**!)`;
+      }
+      if (kirinUnlocked) {
+        huntOutcome += `\n    └ 🌌 **SECRET UNLOCKED!** You gathered all T1-T6 monsters! **Kirin** (Secret Support Animal) and its signature weapon **Amrita Bell** have joined your collection!`;
+      }
+    }
+    if (stoneReward > 0) {
+      huntOutcome += ` (💎 Found +${stoneReward} Elemental Stone(s)!)`;
+    }
+    if (levelUp) {
+      huntOutcome += ` 🌟 **Leveled Up to Lv.${profile.level}!**`;
+    }
+  } else if (battle.result === 'draw') {
+    const levelMultiplier = 1 + (profile.level - 1) * 0.1;
+    let tierXpMult = 1.0;
+    if (monster.tier === 'enchanted') tierXpMult = 1.5;
+    else if (monster.tier === 'blessed') tierXpMult = 2.5;
+    else if (monster.tier === 'overpowered') tierXpMult = 4.0;
+    else if (monster.tier === 'chronicle') tierXpMult = 8.0;
+    else if (monster.tier === 'prodigy') tierXpMult = 15.0;
+    else if (monster.tier === 'beyond') tierXpMult = 30.0;
+
+    xpGained = Math.floor((Math.floor(monster.xpMin * 0.2) || 1) * tierXpMult * levelMultiplier);
+    xpGained = Math.floor(xpGained * diffMult);
+    if (hasF6Onfield) {
+      xpGained = Math.floor(xpGained * 3);
+    }
+    const levelUp = addXP(profile, xpGained);
+    huntOutcome = `💨 Draw vs **${monster.displayName || monster.name}** (${threatLabel}) (+${xpGained.toLocaleString('id-ID')} XP)`;
+    if (levelUp) {
+      huntOutcome += ` 🌟 **Leveled Up to Lv.${profile.level}!**`;
+    }
+  } else {
+    const levelMultiplier = 1 + (profile.level - 1) * 0.1;
+    let tierXpMult = 1.0;
+    if (monster.tier === 'enchanted') tierXpMult = 1.5;
+    else if (monster.tier === 'blessed') tierXpMult = 2.5;
+    else if (monster.tier === 'overpowered') tierXpMult = 4.0;
+    else if (monster.tier === 'chronicle') tierXpMult = 8.0;
+    else if (monster.tier === 'prodigy') tierXpMult = 15.0;
+    else if (monster.tier === 'beyond') tierXpMult = 30.0;
+
+    xpGained = Math.floor((Math.floor(monster.xpMin * 0.2) || 1) * tierXpMult * levelMultiplier);
+    xpGained = Math.floor(xpGained * diffMult);
+    if (hasF6Onfield) {
+      xpGained = Math.floor(xpGained * 3);
+    }
+    const levelUp = addXP(profile, xpGained);
+    huntOutcome = `💀 Lost to **${monster.displayName || monster.name}** (${threatLabel}) (+${xpGained.toLocaleString('id-ID')} XP)`;
+    if (levelUp) {
+      huntOutcome += ` 🌟 **Leveled Up to Lv.${profile.level}!**`;
+    }
   }
 
-  console.log('[Voice Loot Tick] Scanning server voice channels for looting...');
+  const equipLvlUps = addEquipXP(profile, activeTeam, battle.won);
+  if (equipLvlUps.length > 0) {
+    huntOutcome += `\n    └ 📈 ${equipLvlUps.join(', ')}`;
+  }
+
+  profile.totalDamage = (profile.totalDamage || 0) + battle.totalDamageDealt;
+  if (battle.won && monster.tier === 'beyond' && monster.threat === 'threat6') {
+    profile.killedBeyondT6 = true;
+  }
+
+  return `• <@${member.id}> **Lv.${profile.level}**:\n  └ ${huntOutcome}`;
+}
+
+async function executeSingleVoiceLoot(member, profile) {
+  const activeTeam = getActiveTeam(profile);
+  const onfieldWeaponName = activeTeam && activeTeam.onfield ? activeTeam.onfield.weapon : null;
+  const getWpForge = (wpName) => {
+    if (!wpName) return 0;
+    return (profile.weaponLevels && profile.weaponLevels[wpName] ? profile.weaponLevels[wpName].forge : 0) || 0;
+  };
+  const onfieldForge = getWpForge(onfieldWeaponName);
+  const hasF6Onfield = onfieldForge >= 6;
+
+  const weapon = gameData.getRandomWeapon();
+  let lootOutcome = '';
+  const levelMultiplier = 1 + (profile.level - 1) * 0.1;
+  let lootXp = Math.floor(getBaseLootXp(weapon.rarity) * levelMultiplier);
+  if (hasF6Onfield) {
+    lootXp = Math.floor(lootXp * 3);
+  }
+  const weaponInfo = `${weapon.category.toUpperCase()} - ${weapon.rarity.toUpperCase()}`;
   
+  let gotStoneCount = 0;
+  const stoneChance = hasF6Onfield ? 0.10 : 0.05;
+  if (Math.random() < stoneChance) {
+    gotStoneCount += 1;
+  }
+
+  if (gotStoneCount > 0) {
+    profile.elementalStones = (profile.elementalStones || 0) + gotStoneCount;
+  }
+
+  const alreadyOwnsWeapon = getOwnedWeaponsList(profile, member).includes(weapon.name);
+  if (!alreadyOwnsWeapon) {
+    profile.dex.weapons.push(weapon.name);
+    lootOutcome = `🎁 Found **${weapon.name}** (${weaponInfo} - New!)`;
+  } else {
+    if (!profile.weaponLevels[weapon.name]) {
+      profile.weaponLevels[weapon.name] = { level: 1, xp: 0, forge: 0 };
+    }
+    const wData = profile.weaponLevels[weapon.name];
+    wData.forge = wData.forge || 0;
+    if (wData.forge < 6) {
+      wData.forge += 1;
+      lootOutcome = `🎁 Duplicate **${weapon.name}** - Upgraded to Forge ${wData.forge}!`;
+    } else {
+      let sellVal = Math.floor(weapon.sellValue * 10 * levelMultiplier);
+      if (hasF6Onfield) {
+        sellVal = Math.floor(sellVal * 3);
+      }
+      profile.currency += sellVal;
+      lootOutcome = `🎁 Duplicate **${weapon.name}** (${weaponInfo} - Sold for +${sellVal.toLocaleString('id-ID')}g)`;
+    }
+  }
+
+  if (gotStoneCount > 0) {
+    lootOutcome += ` (💎 Found +${gotStoneCount} Elemental Stone(s)!)`;
+  }
+
+  const levelUpLoot = addXP(profile, lootXp);
+  lootOutcome += ` (+${lootXp.toLocaleString('id-ID')} XP)`;
+  if (levelUpLoot) {
+    lootOutcome += ` 🌟 **Leveled Up to Lv.${profile.level}!**`;
+  }
+
+  return `• <@${member.id}> **Lv.${profile.level}**:\n  └ ${lootOutcome}`;
+}
+
+async function runVoiceTick() {
+  if (!firebase.isInitialized()) return;
+
+  const now = Date.now();
+
   for (const [guildId, guild] of client.guilds.cache) {
     try {
       const activeVoiceUsers = [];
@@ -1413,101 +1473,68 @@ async function runVoiceLootTick() {
 
       if (activeVoiceUsers.length === 0) continue;
 
-      console.log(`[Voice Loot Tick] Guild ${guild.name} has ${activeVoiceUsers.length} active players in voice.`);
-
-      const logLines = [];
+      const huntLogLines = [];
+      const lootLogLines = [];
 
       for (const member of activeVoiceUsers) {
         const userId = member.id;
         const profile = await firebase.getUser(userId);
-        
-        const activeTeam = getActiveTeam(profile);
-        const onfieldWeaponName = activeTeam && activeTeam.onfield ? activeTeam.onfield.weapon : null;
-        const getWpForge = (wpName) => {
-          if (!wpName) return 0;
-          return (profile.weaponLevels && profile.weaponLevels[wpName] ? profile.weaponLevels[wpName].forge : 0) || 0;
-        };
-        const onfieldForge = getWpForge(onfieldWeaponName);
-        const hasF6Onfield = onfieldForge >= 6;
+        let profileChanged = false;
 
-        // 2. LOOT LOGIC
-        const weapon = gameData.getRandomWeapon();
-        let lootOutcome = '';
-        const levelMultiplier = 1 + (profile.level - 1) * 0.1;
-        let lootXp = Math.floor(getBaseLootXp(weapon.rarity) * levelMultiplier);
-        if (hasF6Onfield) {
-          lootXp = Math.floor(lootXp * 3);
-        }
-        const weaponInfo = `${weapon.category.toUpperCase()} - ${weapon.rarity.toUpperCase()}`;
-        
-        // 10% chance if F6 onfield, 5% otherwise to drop Elemental Stone
-        let gotStoneCount = 0;
-        const stoneChance = hasF6Onfield ? 0.10 : 0.05;
-        if (Math.random() < stoneChance) {
-          gotStoneCount += 1;
+        // 1. VOICE HUNT SCAN
+        const huntLvl = profile.voiceHuntLevel || 1;
+        const huntCooldownMs = getVoiceHuntCooldown(huntLvl) * 1000;
+        if (now - (profile.lastVoiceHuntTime || 0) >= huntCooldownMs) {
+          const outcome = await executeSingleVoiceHunt(member, profile);
+          huntLogLines.push(outcome);
+          profile.lastVoiceHuntTime = now;
+          profileChanged = true;
         }
 
-        if (gotStoneCount > 0) {
-          profile.elementalStones = (profile.elementalStones || 0) + gotStoneCount;
+        // 2. VOICE LOOT SCAN
+        const lootLvl = profile.voiceLootLevel || 1;
+        const lootCooldownMs = getVoiceLootCooldown(lootLvl) * 1000;
+        if (now - (profile.lastVoiceLootTime || 0) >= lootCooldownMs) {
+          const outcome = await executeSingleVoiceLoot(member, profile);
+          lootLogLines.push(outcome);
+          profile.lastVoiceLootTime = now;
+          profileChanged = true;
         }
 
-        const alreadyOwnsWeapon = getOwnedWeaponsList(profile, member).includes(weapon.name);
-        if (!alreadyOwnsWeapon) {
-          profile.dex.weapons.push(weapon.name);
-          lootOutcome = `🎁 Found **${weapon.name}** (${weaponInfo} - New!)`;
-        } else {
-          if (!profile.weaponLevels[weapon.name]) {
-            profile.weaponLevels[weapon.name] = { level: 1, xp: 0, forge: 0 };
-          }
-          const wData = profile.weaponLevels[weapon.name];
-          wData.forge = wData.forge || 0;
-          if (wData.forge < 6) {
-            wData.forge += 1;
-            lootOutcome = `🎁 Duplicate **${weapon.name}** - Upgraded to Forge ${wData.forge}!`;
-          } else {
-            let sellVal = Math.floor(weapon.sellValue * 10 * levelMultiplier);
-            if (hasF6Onfield) {
-              sellVal = Math.floor(sellVal * 3);
-            }
-            profile.currency += sellVal;
-            lootOutcome = `🎁 Duplicate **${weapon.name}** (${weaponInfo} - Sold for +${sellVal}g)`;
-          }
+        if (profileChanged) {
+          await firebase.saveUser(userId, profile);
         }
-
-        if (gotStoneCount > 0) {
-          lootOutcome += ` (💎 Found +${gotStoneCount} Elemental Stone(s)!)`;
-        }
-
-        const levelUpLoot = addXP(profile, lootXp);
-        lootOutcome += ` (+${lootXp} XP)`;
-        if (levelUpLoot) {
-          lootOutcome += ` 🌟 **Leveled Up to Lv.${profile.level}!**`;
-        }
-
-        // Save progress
-        await firebase.saveUser(userId, profile);
-
-        // Format result log
-        logLines.push(`• <@${userId}> **Lv.${profile.level}**:\n  └ ${lootOutcome}`);
       }
 
       const logChannel = await getOrCreateLogChannel(guild);
       if (logChannel) {
-        const chunkSize = 10;
-        for (let i = 0; i < logLines.length; i += chunkSize) {
-          const chunk = logLines.slice(i, i + chunkSize);
-          const embed = new EmbedBuilder()
-            .setTitle('🔊 Voice Channel Idle Loot Logs')
-            .setColor('#FFC107')
-            .setDescription(chunk.join('\n\n'))
-            .setTimestamp();
-          
-          await logChannel.send({ embeds: [embed] });
+        if (huntLogLines.length > 0) {
+          const chunkSize = 10;
+          for (let i = 0; i < huntLogLines.length; i += chunkSize) {
+            const chunk = huntLogLines.slice(i, i + chunkSize);
+            const embed = new EmbedBuilder()
+              .setTitle('🔊 Voice Channel Idle Hunt Logs')
+              .setColor('#4CAF50')
+              .setDescription(chunk.join('\n\n'))
+              .setTimestamp();
+            await logChannel.send({ embeds: [embed] }).catch(() => {});
+          }
+        }
+        if (lootLogLines.length > 0) {
+          const chunkSize = 10;
+          for (let i = 0; i < lootLogLines.length; i += chunkSize) {
+            const chunk = lootLogLines.slice(i, i + chunkSize);
+            const embed = new EmbedBuilder()
+              .setTitle('🔊 Voice Channel Idle Loot Logs')
+              .setColor('#FF9800')
+              .setDescription(chunk.join('\n\n'))
+              .setTimestamp();
+            await logChannel.send({ embeds: [embed] }).catch(() => {});
+          }
         }
       }
-
     } catch (err) {
-      console.error(`[Voice Loot Tick Error] Error processing guild ${guild.name}:`, err);
+      console.error(`[Voice Tick Error] Error processing guild ${guild.name}:`, err);
     }
   }
 }
@@ -1557,7 +1584,9 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
         { name: `${effectivePrefix}s h [simple/informative/info]`, value: "Toggle hunt battle log layouts." },
         { name: `${effectivePrefix}userprefix [prefix]`, value: "Change your personal prefix preference (use `reset` or `none` to clear)." },
         { name: `${effectivePrefix}serverprefix [prefix]`, value: "Change server-wide prefix preference (Manage Server permission required, use `reset` or `none` to clear)." },
-        { name: `${effectivePrefix}by [info/up/fight]`, value: "Beyond Threat Level system & TX Kirin boss fight. (10s cooldown for fight)" }
+        { name: `${effectivePrefix}by [info/up/down]`, value: "Beyond Threat Level system commands." },
+        { name: `${effectivePrefix}voice`, value: "Upgrade your Voice Channel Idle Hunt and Loot intervals." },
+        { name: `${effectivePrefix}give @User [amount]`, value: "Transfer Gold to another player." }
       )
       .setFooter({ text: `Active Prefix: ${effectivePrefix} | User Prefix: ${userPrefix || 'None'} | Server Prefix: ${serverPrefix || 'None'}` });
     return message.reply({ embeds: [embed] });
@@ -3843,6 +3872,180 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
     }
   }
 
+  // COMMAND: VOICE UPGRADES ('voice)
+  if (command === 'voice') {
+    try {
+      const profile = await firebase.getUser(userId);
+      
+      const getEmbed = (prof) => {
+        const vhLvl = prof.voiceHuntLevel || 1;
+        const vlLvl = prof.voiceLootLevel || 1;
+        const vhTime = formatVoiceInterval(getVoiceHuntCooldown(vhLvl));
+        const vlTime = formatVoiceInterval(getVoiceLootCooldown(vlLvl));
+        
+        const nextVhLvl = vhLvl < 10 ? vhLvl + 1 : 'MAX';
+        const nextVlLvl = vlLvl < 10 ? vlLvl + 1 : 'MAX';
+        const nextVhTime = vhLvl < 10 ? formatVoiceInterval(getVoiceHuntCooldown(vhLvl + 1)) : 'MAX';
+        const nextVlTime = vlLvl < 10 ? formatVoiceInterval(getVoiceLootCooldown(vlLvl + 1)) : 'MAX';
+        
+        const vhCost = getVoiceUpgradeCost(vhLvl);
+        const vlCost = getVoiceUpgradeCost(vlLvl);
+        
+        return new EmbedBuilder()
+          .setTitle('🔊 Voice Channel Idle Upgrades')
+          .setColor('#00E676')
+          .setDescription('Earn rewards passively by sitting in voice channels. Upgrade your Voice Hunt and Voice Loot frequencies to get logs much faster!')
+          .addFields(
+            { 
+              name: '⚔️ Voice Hunt (Auto Hunt)', 
+              value: `• **Current Level**: Level ${vhLvl}/10\n• **Interval**: Every **${vhTime}**\n• **Next Level**: Level ${nextVhLvl} (Every **${nextVhTime}**)\n• **Upgrade Cost**: ${vhCost ? `💎 **${vhCost} Elemental Stones**` : '`MAX`'}`, 
+              inline: false 
+            },
+            { 
+              name: '🎁 Voice Loot (Auto Loot)', 
+              value: `• **Current Level**: Level ${vlLvl}/10\n• **Interval**: Every **${vlTime}**\n• **Next Level**: Level ${nextVlLvl} (Every **${nextVlTime}**)\n• **Upgrade Cost**: ${vlCost ? `💎 **${vlCost} Elemental Stones**` : '`MAX`'}`, 
+              inline: false 
+            }
+          )
+          .setTimestamp();
+      };
+      
+      const getComponents = (prof) => {
+        const stones = prof.elementalStones || 0;
+        const vhLvl = prof.voiceHuntLevel || 1;
+        const vlLvl = prof.voiceLootLevel || 1;
+        
+        const vhCost = getVoiceUpgradeCost(vhLvl);
+        const vlCost = getVoiceUpgradeCost(vlLvl);
+        
+        const stoneBtn = new ButtonBuilder()
+          .setCustomId('voice_stone_display')
+          .setLabel(`💎 Stones: ${stones}`)
+          .setStyle(ButtonStyle.Secondary)
+          .setDisabled(true);
+          
+        const upHuntBtn = new ButtonBuilder()
+          .setCustomId(`voice_up_hunt_${userId}`)
+          .setLabel(vhCost ? `Up Hunt (Costs ${vhCost})` : 'Hunt MAX')
+          .setStyle(ButtonStyle.Success)
+          .setDisabled(!vhCost || stones < vhCost);
+          
+        const upLootBtn = new ButtonBuilder()
+          .setCustomId(`voice_up_loot_${userId}`)
+          .setLabel(vlCost ? `Up Loot (Costs ${vlCost})` : 'Loot MAX')
+          .setStyle(ButtonStyle.Primary)
+          .setDisabled(!vlCost || stones < vlCost);
+          
+        return new ActionRowBuilder().addComponents(stoneBtn, upHuntBtn, upLootBtn);
+      };
+      
+      const sentMessage = await message.reply({ embeds: [getEmbed(profile)], components: [getComponents(profile)] });
+      
+      const filter = (i) => i.user.id === userId && (i.customId === `voice_up_hunt_${userId}` || i.customId === `voice_up_loot_${userId}`);
+      const collector = sentMessage.createMessageComponentCollector({ filter, time: 60000 });
+      
+      collector.on('collect', async (i) => {
+        try {
+          const p = await firebase.getUser(userId);
+          const stones = p.elementalStones || 0;
+          
+          if (i.customId === `voice_up_hunt_${userId}`) {
+            const vhLvl = p.voiceHuntLevel || 1;
+            const cost = getVoiceUpgradeCost(vhLvl);
+            if (cost && stones >= cost) {
+              p.elementalStones -= cost;
+              p.voiceHuntLevel = vhLvl + 1;
+              await firebase.saveUser(userId, p);
+              await i.reply({ content: `✅ Voice Hunt successfully upgraded to **Level ${p.voiceHuntLevel}**!`, ephemeral: true }).catch(() => {});
+            } else {
+              await i.reply({ content: `❌ You do not have enough Elemental Stones.`, ephemeral: true }).catch(() => {});
+            }
+          } else if (i.customId === `voice_up_loot_${userId}`) {
+            const vlLvl = p.voiceLootLevel || 1;
+            const cost = getVoiceUpgradeCost(vlLvl);
+            if (cost && stones >= cost) {
+              p.elementalStones -= cost;
+              p.voiceLootLevel = vlLvl + 1;
+              await firebase.saveUser(userId, p);
+              await i.reply({ content: `✅ Voice Loot successfully upgraded to **Level ${p.voiceLootLevel}**!`, ephemeral: true }).catch(() => {});
+            } else {
+              await i.reply({ content: `❌ You do not have enough Elemental Stones.`, ephemeral: true }).catch(() => {});
+            }
+          }
+          
+          const updatedProfile = await firebase.getUser(userId);
+          await sentMessage.edit({ embeds: [getEmbed(updatedProfile)], components: [getComponents(updatedProfile)] }).catch(() => {});
+        } catch (err) {
+          console.error('[Voice Up Collector Error]', err);
+        }
+      });
+      
+      collector.on('end', () => {
+        const disabledRow = new ActionRowBuilder().addComponents(
+          new ButtonBuilder().setCustomId('voice_stone_display_d').setLabel(`💎 Stones: ${profile.elementalStones || 0}`).setStyle(ButtonStyle.Secondary).setDisabled(true),
+          new ButtonBuilder().setCustomId('voice_up_hunt_d').setLabel('Up Hunt').setStyle(ButtonStyle.Success).setDisabled(true),
+          new ButtonBuilder().setCustomId('voice_up_loot_d').setLabel('Up Loot').setStyle(ButtonStyle.Primary).setDisabled(true)
+        );
+        sentMessage.edit({ components: [disabledRow] }).catch(() => {});
+      });
+    } catch (err) {
+      console.error('[Command Voice Error]', err);
+      return message.reply('❌ Failed to access Voice system upgrades.');
+    }
+  }
+
+  // COMMAND: GIVE GOLD ('give)
+  if (command === 'give') {
+    try {
+      if (args.length < 2) {
+        return message.reply(`🪙 **Give Gold Command Usage:**\n• \`${effectivePrefix}give @User [amount]\`\n• \`${effectivePrefix}give [User ID] [amount]\``);
+      }
+
+      const authorId = userId;
+      let targetUser = message.source.mentions ? message.source.mentions.users.first() : null;
+      let targetId = targetUser ? targetUser.id : args[0];
+      
+      targetId = targetId.replace(/[<@!>]/g, '');
+
+      if (targetId === authorId) {
+        return message.reply(`❌ You cannot give Gold to yourself!`);
+      }
+
+      const amount = parseInt(args[1]);
+      if (isNaN(amount) || amount <= 0) {
+        return message.reply(`❌ Please specify a valid amount of Gold to give.`);
+      }
+
+      const senderProfile = await firebase.getUser(authorId);
+      if ((senderProfile.currency || 0) < amount) {
+        return message.reply(`❌ You do not have enough Gold! You currently have: **${(senderProfile.currency || 0).toLocaleString('id-ID')}** Gold.`);
+      }
+
+      let receiverProfile;
+      try {
+        receiverProfile = await firebase.getUser(targetId);
+      } catch (err) {
+        return message.reply(`❌ Could not find a player profile with the ID **${targetId}**.`);
+      }
+
+      if (!receiverProfile) {
+        return message.reply(`❌ The target user does not have an active RPG profile yet.`);
+      }
+
+      senderProfile.currency = (senderProfile.currency || 0) - amount;
+      receiverProfile.currency = (receiverProfile.currency || 0) + amount;
+
+      await firebase.saveUser(authorId, senderProfile);
+      await firebase.saveUser(targetId, receiverProfile);
+
+      return message.reply(`🪙 **Transaction Successful!**\n✅ You gave **${amount.toLocaleString('id-ID')}** Gold to <@${targetId}>.`);
+
+    } catch (err) {
+      console.error('[Command Give Error]', err);
+      return message.reply('❌ Transaction failed.');
+    }
+  }
+
   // COMMAND: BEYOND SYSTEM ('by)
   if (command === 'by') {
     try {
@@ -5150,6 +5353,10 @@ client.on('interactionCreate', async (interaction) => {
   } else if (commandName === 'userprefix' || commandName === 'serverprefix') {
     const prefix = interaction.options.getString('prefix');
     args.push(prefix);
+  } else if (commandName === 'give') {
+    const user = interaction.options.getUser('user');
+    const amount = interaction.options.getInteger('amount');
+    args.push(user.id, amount.toString());
   }
 
   // Resolve prefix for help command / display
