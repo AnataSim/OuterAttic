@@ -78,7 +78,17 @@ const COMMAND_PAYLOADS = [
   },
   {
     name: 'leaderboard',
-    description: 'View the top players sorted by level and experience',
+    description: 'View the top players sorted by level or gold',
+    options: [{
+      name: 'category',
+      description: 'The leaderboard category to view (default: level)',
+      type: 3, // STRING
+      required: false,
+      choices: [
+        { name: 'Level / Progression', value: 'level' },
+        { name: 'Gold / Wealth', value: 'gold' }
+      ]
+    }],
     integration_types: [0, 1],
     contexts: [0, 1, 2]
   },
@@ -1568,7 +1578,7 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
         { name: `${effectivePrefix}h or ${effectivePrefix}hunt`, value: "Simulate a hunt for a monster. (10s cooldown)" },
         { name: `${effectivePrefix}l or ${effectivePrefix}loot`, value: "Loot a chest for weapons. (10s cooldown)" },
         { name: `${effectivePrefix}p or ${effectivePrefix}profile`, value: "Check level, progression, combat stats, currency, and active team slots." },
-        { name: `${effectivePrefix}lb or ${effectivePrefix}leaderboard`, value: "View the top players sorted by level and experience." },
+        { name: `${effectivePrefix}lb [gold/level] or ${effectivePrefix}leaderboard [gold/level]`, value: "View the top players sorted by level (default) or gold wealth." },
         { name: `${effectivePrefix}dex`, value: "View your library of tamed monsters and collected weapons." },
         { name: `${effectivePrefix}team view`, value: "View configuration details for all 3 teams." },
         { name: `${effectivePrefix}team set [1-3]`, value: "Change which team is active." },
@@ -3082,20 +3092,33 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
         allUsers.push(doc.data());
       });
 
-      allUsers.sort((a, b) => {
-        if (b.level !== a.level) return b.level - a.level;
-        return (b.xp || 0) - (a.xp || 0);
-      });
+      const isGoldSort = args.length > 0 && (args[0].toLowerCase() === 'gold' || args[0].toLowerCase() === 'g');
+
+      if (isGoldSort) {
+        allUsers.sort((a, b) => (b.currency || 0) - (a.currency || 0));
+      } else {
+        allUsers.sort((a, b) => {
+          if (b.level !== a.level) return b.level - a.level;
+          return (b.xp || 0) - (a.xp || 0);
+        });
+      }
 
       const top10 = allUsers.slice(0, 10);
       const embed = new EmbedBuilder()
-        .setTitle('🏆 Progression Leaderboard')
+        .setTitle(isGoldSort ? '🪙 Gold Leaderboard' : '🏆 Progression Leaderboard')
         .setColor('#FFD700')
         .setTimestamp();
 
+      const formatNumber = (num) => num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+
       const lines = top10.map((u, index) => {
         const medal = index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : `${index + 1}.`;
-        return `${medal} <@${u.userId}> • **Lv.${u.level}** (${u.xp} XP) • 🪙 **${u.currency}** Gold • 🎖️ **${u.huntMarks || 0}** Marks`;
+        const goldText = formatNumber(u.currency || 0);
+        if (isGoldSort) {
+          return `${medal} <@${u.userId}> • 🪙 **${goldText}** Gold • **Lv.${u.level}** (${u.xp} XP) • 🎖️ **${u.huntMarks || 0}** Marks`;
+        } else {
+          return `${medal} <@${u.userId}> • **Lv.${u.level}** (${u.xp} XP) • 🪙 **${goldText}** Gold • 🎖️ **${u.huntMarks || 0}** Marks`;
+        }
       });
 
       embed.setDescription(lines.join('\n') || '*No players in the leaderboard yet.*');
@@ -3103,7 +3126,7 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
       return message.reply({ embeds: [embed] });
     } catch (err) {
       console.error('[Leaderboard Command Error]', err);
-      return message.reply('❌ Failed to retrieve progression leaderboard.');
+      return message.reply('❌ Failed to retrieve leaderboard.');
     }
   }
 
@@ -5341,6 +5364,11 @@ client.on('interactionCreate', async (interaction) => {
       args.push('hunt', hunt);
     }
   } else if (commandName === 'dex') {
+    const category = interaction.options.getString('category');
+    if (category) {
+      args.push(category);
+    }
+  } else if (commandName === 'leaderboard') {
     const category = interaction.options.getString('category');
     if (category) {
       args.push(category);
