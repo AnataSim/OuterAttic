@@ -128,8 +128,8 @@ const COMMAND_PAYLOADS = [
     description: 'Play high-stakes slots (Max bet: 50.000.000, 30% win chance)',
     options: [{
       name: 'bet',
-      description: 'The amount of Gold to bet',
-      type: 4, // INTEGER
+      description: 'The amount of Gold to bet or "all"',
+      type: 3, // STRING
       required: true
     }],
     integration_types: [0, 1],
@@ -4050,6 +4050,13 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
         return message.reply(`❌ The target user does not have an active RPG profile yet.`);
       }
 
+      if (receiverProfile.giftBlockedUntil && Date.now() < receiverProfile.giftBlockedUntil) {
+        const remainingMs = receiverProfile.giftBlockedUntil - Date.now();
+        const minutes = Math.floor(remainingMs / 60000);
+        const seconds = Math.floor((remainingMs % 60000) / 1000);
+        return message.reply(`❌ This user is currently blocked from receiving gifts for another **${minutes}m ${seconds}s** after losing a slots all-in bet!`);
+      }
+
       senderProfile.currency = (senderProfile.currency || 0) - amount;
       receiverProfile.currency = (receiverProfile.currency || 0) + amount;
 
@@ -4882,7 +4889,7 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
   if (command === 'sloth' || command === 'slothigh') {
     try {
       if (args.length < 1) {
-        return message.reply(`🎰 **High-Stakes Slot Machine Command Usage:**\n• \`${effectivePrefix}sloth [bet_amount]\` (Max bet: 50.000.000, 30% win chance)\n*Example:* \`${effectivePrefix}sloth 100000\``);
+        return message.reply(`🎰 **High-Stakes Slot Machine Command Usage:**\n• \`${effectivePrefix}sloth [bet_amount/all]\` (Max bet: 50.000.000, 30% win chance)\n*Example:* \`${effectivePrefix}sloth 100000\` or \`${effectivePrefix}sloth all\``);
       }
 
       // Check cooldown
@@ -4896,22 +4903,35 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
         }
       }
 
-      // Parse Bet Amount
-      const betInput = args[0];
-      const betAmount = parseInt(betInput, 10);
-      if (isNaN(betAmount) || betAmount <= 0) {
-        return message.reply(`❌ Please enter a valid positive bet amount.`);
-      }
-
-      if (betAmount > 50000000) {
-        return message.reply(`❌ Maximum bet amount is **50.000.000 Gold**!`);
-      }
-
       // Fetch profile
       const profile = await firebase.getUser(userId);
       const userGold = profile.currency || 0;
-      if (userGold < betAmount) {
-        return message.reply(`❌ You do not have enough Gold! You only have **${userGold.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".")}** gold.`);
+
+      // Parse Bet Amount
+      const betInput = args[0];
+      let betAmount;
+      let isAllIn = false;
+
+      if (betInput.toLowerCase() === 'all') {
+        isAllIn = true;
+        betAmount = userGold;
+        if (betAmount <= 0) {
+          return message.reply(`❌ You do not have any Gold to bet!`);
+        }
+        if (betAmount > 50000000) {
+          betAmount = 50000000;
+        }
+      } else {
+        betAmount = parseInt(betInput, 10);
+        if (isNaN(betAmount) || betAmount <= 0) {
+          return message.reply(`❌ Please enter a valid positive bet amount or \`all\`.`);
+        }
+        if (betAmount > 50000000) {
+          return message.reply(`❌ Maximum bet amount is **50.000.000 Gold**!`);
+        }
+        if (userGold < betAmount) {
+          return message.reply(`❌ You do not have enough Gold! You only have **${userGold.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".")}** gold.`);
+        }
       }
 
       // All validations passed! Set cooldown
@@ -4997,6 +5017,9 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
         return message.reply({ embeds: [embed] });
       } else {
         profile.currency -= betAmount;
+        if (isAllIn) {
+          profile.giftBlockedUntil = Date.now() + 3600000; // 1 hour penalty
+        }
         await firebase.saveUser(userId, profile);
 
         // Redirect lost bet to creator
@@ -5011,7 +5034,7 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
           .setColor('#9E9E9E')
           .setDescription(`You pulled the lever with a bet of **${betAmount.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".")}** gold!\n\n${gridText}`)
           .addFields(
-            { name: 'Result', value: `💀 **NO MATCH!** Better luck next time!\nLost **${betAmount.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".")}** gold.`, inline: false },
+            { name: 'Result', value: `💀 **NO MATCH!** Better luck next time!\nLost **${betAmount.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".")}** gold.${isAllIn ? '\n⚠️ **All-In Penalty**: You are blocked from receiving gifts (\`\'give\`) for 1 hour!' : ''}`, inline: false },
             { name: 'Your Gold Balance', value: `🪙 **${profile.currency.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".")}**`, inline: false }
           )
           .setTimestamp();
@@ -5321,9 +5344,12 @@ client.on('interactionCreate', async (interaction) => {
     const bet = interaction.options.getInteger('bet');
     const side = interaction.options.getString('side');
     args.push(bet.toString(), side);
-  } else if (commandName === 'slots' || commandName === 'sloth') {
+  } else if (commandName === 'slots') {
     const bet = interaction.options.getInteger('bet');
     args.push(bet.toString());
+  } else if (commandName === 'sloth') {
+    const bet = interaction.options.getString('bet');
+    args.push(bet.trim());
   } else if (commandName === 'monster' || commandName === 'weapon') {
     const name = interaction.options.getString('name');
     if (name) {
