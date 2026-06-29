@@ -4918,9 +4918,6 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
         if (betAmount <= 0) {
           return message.reply(`❌ You do not have any Gold to bet!`);
         }
-        if (betAmount > 50000000) {
-          betAmount = 50000000;
-        }
       } else {
         betAmount = parseInt(betInput, 10);
         if (isNaN(betAmount) || betAmount <= 0) {
