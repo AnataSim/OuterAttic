@@ -115,7 +115,7 @@ const COMMAND_PAYLOADS = [
   },
   {
     name: 'sloth',
-    description: 'Play high-stakes slots (Max bet: 2.500.000, 30% win chance)',
+    description: 'Play high-stakes slots (Max bet: 50.000.000, 30% win chance)',
     options: [{
       name: 'bet',
       description: 'The amount of Gold to bet',
@@ -1635,7 +1635,7 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
       const battle = gameData.simulateBattle(playerStats, monster, activeTeam, profile.weaponLevels, profile.monsterLevels);
       const threatLabel = isBeyondMode ? `Beyond Level ${profile.beyondLevel}` : `Threat ${monster.threat.replace('threat', '')}`;
 
-      const embed = new EmbedBuilder().setAuthor({ name: isBeyondMode ? `${message.author.username}'s Beyond Fight` : `${message.author.username}'s Hunt`, iconURL: message.author.displayAvatarURL() });
+      const embed = new EmbedBuilder().setAuthor({ name: `${message.author.username}'s Hunt`, iconURL: message.author.displayAvatarURL() });
 
       const huntLayout = (profile.settings && profile.settings.huntLayout) || 'informative';
       let pages = [];
@@ -1678,10 +1678,10 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
         const byLevel = profile.beyondLevel;
         if (battle.result === 'victory') {
           statusText = 'Victory';
-          embedColor = '#FFD700'; // Gold/Yellow for TX Kirin Victory
+          embedColor = '#1A0D3D'; // Dark Purple/Indigo for Beyond
           
-          xpGained = Math.floor(2000 * byLevel * levelMultiplier);
-          goldGained = Math.floor(5000 * byLevel * levelMultiplier);
+          xpGained = Math.floor(80000 * byLevel * levelMultiplier);
+          goldGained = Math.floor(200000 * byLevel * levelMultiplier);
           stoneReward = 5 + byLevel;
           const markAdd = 50 + byLevel * 5;
           profile.huntMarks = (profile.huntMarks || 0) + markAdd;
@@ -1708,7 +1708,7 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
         } else if (battle.result === 'draw') {
           statusText = 'Draw';
           embedColor = '#9E9E9E';
-          xpGained = Math.floor(400 * byLevel * levelMultiplier);
+          xpGained = Math.floor(16000 * byLevel * levelMultiplier);
           if (hasF6Onfield) {
             xpGained = Math.floor(xpGained * 3);
           }
@@ -1718,7 +1718,7 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
         } else {
           statusText = 'Defeat';
           embedColor = '#F44336';
-          xpGained = Math.floor(400 * byLevel * levelMultiplier);
+          xpGained = Math.floor(16000 * byLevel * levelMultiplier);
           if (hasF6Onfield) {
             xpGained = Math.floor(xpGained * 3);
           }
@@ -1954,13 +1954,13 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
 
       // Add double-column fields
       const battleInfoText = isBeyondMode
-        ? `• **Monster**: TX Kirin\n• **BY Level**: Level ${profile.beyondLevel}\n• **Status**: ${statusText}`
+        ? `• **Monster**: TX Kirin\n• **Threat**: Beyond Level ${profile.beyondLevel}\n• **Super-Threat**: Beyond\n• **Status**: ${statusText}`
         : `• **Monster**: ${monster.name}\n• **Threat**: Threat ${monster.threat.replace('threat', '')}\n• **Super-Threat**: ${capitalizedTier}\n• **Status**: ${statusText}`;
-      const monsterStatsText = `• **HP**: ${tierHp.toLocaleString('id-ID')}\n• **ATK**: ${tierAtk.toLocaleString('id-ID')}\n• **DEF**: ${tierDef.toLocaleString('id-ID')}${isBeyondMode ? '' : `\n• **Spawn Rate**: ${spawnRate}`}`;
+      const monsterStatsText = `• **HP**: ${tierHp.toLocaleString('id-ID')}\n• **ATK**: ${tierAtk.toLocaleString('id-ID')}\n• **DEF**: ${tierDef.toLocaleString('id-ID')}\n• **Spawn Rate**: ${spawnRate}`;
 
       embed.addFields(
         { name: '📋 Battle Info', value: battleInfoText, inline: true },
-        { name: isBeyondMode ? '📊 Kirin Stats' : '📊 Monster Stats', value: monsterStatsText, inline: true },
+        { name: '📊 Monster Stats', value: monsterStatsText, inline: true },
         { name: '⚜️ Element Resilience', value: `\`\`\`\n${battle.monsterResistances.join(', ')}\n\`\`\``, inline: false },
         { name: '💥 Total Damage', value: `\`\`\`\nTotal Damage: ${battle.totalDamageDealt.toLocaleString('id-ID')}\n\`\`\``, inline: false }
       );
@@ -2016,19 +2016,26 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
           { name: '📊 Progress', value: getProgressText(), inline: false }
         );
 
+        if (stoneReward > 0 || isBeyondMode) {
+          let dropBonusText = '';
+          if (stoneReward > 0) {
+            dropBonusText += `Found **+${stoneReward} Elemental Stone(s)**!`;
+          }
+          if (isBeyondMode) {
+            const markAdd = 50 + profile.beyondLevel * 5;
+            dropBonusText += (dropBonusText ? '\n' : '') + `Gained **+${markAdd} Hunt Marks**! ⚡`;
+          }
+          embed.addFields(
+            { name: '💎 Drop Bonus', value: dropBonusText, inline: false }
+          );
+        }
+
         if (isBeyondMode) {
-          embed.addFields({ name: '🎁 Victory Rewards', value: `🔺 **XP**: +${xpGained.toLocaleString('id-ID')}\n🪙 **Gold**: +${goldGained.toLocaleString('id-ID')}\n💎 **Elemental Stones**: +${stoneReward}\n🎯 **Hunt Marks**: +${50 + profile.beyondLevel * 5}` });
           if (profile.newlyUnlockedConqueror) {
             embed.addFields({ name: '🏆 Achievement Unlocked!', value: `🌟 **Celestial Conqueror** (Defeated TX Kirin)` });
             delete profile.newlyUnlockedConqueror;
           }
         } else {
-          if (stoneReward > 0) {
-            embed.addFields(
-              { name: '💎 Drop Bonus', value: `Found **+${stoneReward} Elemental Stone(s)**!`, inline: false }
-            );
-          }
-
           if (tamed) {
             if (isDuplicate) {
               if (forgeLevelUp) {
@@ -2056,10 +2063,6 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
           { name: '📊 Progress', value: getProgressText(), inline: false }
         );
 
-        if (isBeyondMode) {
-          embed.addFields({ name: '🎁 Rewards', value: `🔺 **XP**: +${xpGained.toLocaleString('id-ID')}` });
-        }
-
         if (levelUp) {
           embed.addFields({ name: '⭐ LEVEL UP!', value: `🎉 Congratulations! You have leveled up to **Level ${profile.level}**!` });
         }
@@ -2070,10 +2073,6 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
         embed.addFields(
           { name: '📊 Progress', value: getProgressText(), inline: false }
         );
-
-        if (isBeyondMode) {
-          embed.addFields({ name: '🎁 Rewards', value: `🔺 **XP**: +${xpGained.toLocaleString('id-ID')}` });
-        }
 
         if (levelUp) {
           embed.addFields({ name: '⭐ LEVEL UP!', value: `🎉 Congratulations! You have leveled up to **Level ${profile.level}**!` });
@@ -4860,7 +4859,7 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
   if (command === 'sloth' || command === 'slothigh') {
     try {
       if (args.length < 1) {
-        return message.reply(`🎰 **High-Stakes Slot Machine Command Usage:**\n• \`${effectivePrefix}sloth [bet_amount]\` (Max bet: 2.500.000, 30% win chance)\n*Example:* \`${effectivePrefix}sloth 100000\``);
+        return message.reply(`🎰 **High-Stakes Slot Machine Command Usage:**\n• \`${effectivePrefix}sloth [bet_amount]\` (Max bet: 50.000.000, 30% win chance)\n*Example:* \`${effectivePrefix}sloth 100000\``);
       }
 
       // Check cooldown
@@ -4881,8 +4880,8 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
         return message.reply(`❌ Please enter a valid positive bet amount.`);
       }
 
-      if (betAmount > 2500000) {
-        return message.reply(`❌ Maximum bet amount is **2.500.000 Gold**!`);
+      if (betAmount > 50000000) {
+        return message.reply(`❌ Maximum bet amount is **50.000.000 Gold**!`);
       }
 
       // Fetch profile
