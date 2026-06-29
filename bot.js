@@ -1163,10 +1163,6 @@ client.once('ready', async () => {
   console.log('[Bot] Voice activity tick initialized (running every 10 seconds).');
 });
 
-// Periodic Voice Scan Hunt Tick (Every 5 minutes)
-async function runVoiceHuntTick() {
-  if (!firebase.isInitialized()) {
-    console.warn('[Voice Hunt Tick] Skipped because Firebase database is not initialized.');
 function getVoiceHuntCooldown(level) {
   const times = [300, 240, 180, 120, 60, 45, 30, 20, 15, 10];
   const idx = Math.max(1, Math.min(10, level)) - 1;
