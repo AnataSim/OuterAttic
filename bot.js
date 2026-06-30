@@ -117,7 +117,7 @@ const COMMAND_PAYLOADS = [
     options: [{
       name: 'bet',
       description: 'The amount of Gold to bet',
-      type: 4, // INTEGER
+      type: 3, // STRING
       required: true
     }],
     integration_types: [0, 1],
@@ -142,7 +142,7 @@ const COMMAND_PAYLOADS = [
       {
         name: 'bet',
         description: 'The amount of Gold to bet',
-        type: 4, // INTEGER
+        type: 3, // STRING
         required: true
       },
       {
@@ -166,7 +166,7 @@ const COMMAND_PAYLOADS = [
       {
         name: 'bet',
         description: 'The amount of Gold to bet',
-        type: 4, // INTEGER
+        type: 3, // STRING
         required: true
       },
       {
@@ -428,7 +428,27 @@ const COMMAND_PAYLOADS = [
       {
         name: 'amount',
         description: 'The amount of Gold to give',
-        type: 4, // INTEGER
+        type: 3, // STRING
+        required: true
+      }
+    ],
+    integration_types: [0, 1],
+    contexts: [0, 1, 2]
+  },
+  {
+    name: 'bet',
+    description: 'Challenge another player to a dice bet',
+    options: [
+      {
+        name: 'player',
+        description: 'The player to challenge',
+        type: 6, // USER
+        required: true
+      },
+      {
+        name: 'amount',
+        description: 'The amount of Gold to bet',
+        type: 3, // STRING
         required: true
       }
     ],
@@ -732,6 +752,56 @@ function getForgeProgressionText(weapon, forgeLvl) {
   }
 
   return outputText;
+}
+
+// Helper to parse shorthand gold amounts (e.g. 10k, 10m, 10b, 10jt, 10rb)
+function parseGoldAmount(input) {
+  if (input === null || input === undefined) return NaN;
+  const str = input.toString().trim().toLowerCase().replace(/,/g, '.');
+
+  // Regex to extract numeric part and suffix
+  const match = str.match(/^([\d\.]+)\s*(k|m|b|t|rb|jt)?$/);
+  if (!match) {
+    // If it has multiple dots or is just a large formatted number like 1.000.000 without suffix
+    const cleanInt = str.replace(/\./g, '');
+    return parseInt(cleanInt, 10);
+  }
+
+  const numPart = parseFloat(match[1]);
+  const suffix = match[2];
+
+  if (isNaN(numPart)) return NaN;
+
+  if (!suffix) {
+    // Check if dot was a thousands separator (e.g., 10.000 -> 10000) or decimal (e.g. 10.5)
+    if (str.includes('.')) {
+      const parts = str.split('.');
+      if (parts.length > 2 || (parts.length === 2 && parts[1].length === 3)) {
+        return parseInt(str.replace(/\./g, ''), 10);
+      }
+    }
+    return numPart;
+  }
+
+  let multiplier = 1;
+  switch (suffix) {
+    case 'k':
+    case 'rb':
+      multiplier = 1000;
+      break;
+    case 'm':
+    case 'jt':
+      multiplier = 1000000;
+      break;
+    case 'b':
+      multiplier = 1000000000;
+      break;
+    case 't':
+      multiplier = 1000000000000;
+      break;
+  }
+
+  return Math.floor(numPart * multiplier);
 }
 
 // Helper to format XP bar
@@ -1592,7 +1662,8 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
         { name: `${effectivePrefix}serverprefix [prefix]`, value: "Change server-wide prefix preference (Manage Server permission required, use `reset` or `none` to clear)." },
         { name: `${effectivePrefix}by [info/up/down]`, value: "Beyond Threat Level system commands." },
         { name: `${effectivePrefix}voice`, value: "Upgrade your Voice Channel Idle Hunt and Loot intervals." },
-        { name: `${effectivePrefix}give @User [amount]`, value: "Transfer Gold to another player." }
+        { name: `${effectivePrefix}give @User [amount]`, value: "Transfer Gold to another player." },
+        { name: `${effectivePrefix}bet @player [amount]`, value: "Challenge another player to a multiplayer dice bet." }
       )
       .setFooter({ text: `Active Prefix: ${effectivePrefix} | User Prefix: ${userPrefix || 'None'} | Server Prefix: ${serverPrefix || 'None'}` });
     return message.reply({ embeds: [embed] });
@@ -4029,7 +4100,7 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
         return message.reply(`❌ You cannot give Gold to yourself!`);
       }
 
-      const amount = parseInt(args[1]);
+      const amount = parseGoldAmount(args[1]);
       if (isNaN(amount) || amount <= 0) {
         return message.reply(`❌ Please specify a valid amount of Gold to give.`);
       }
@@ -4069,6 +4140,265 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
     } catch (err) {
       console.error('[Command Give Error]', err);
       return message.reply('❌ Transaction failed.');
+    }
+  }
+
+  // COMMAND: BET ('bet)
+  if (command === 'bet') {
+    try {
+      if (args.length < 2) {
+        return message.reply(`🎲 **Dice Bet Command Usage:**\n• \`${effectivePrefix}bet @player [amount]\`\n• \`${effectivePrefix}bet [Player ID] [amount]\``);
+      }
+
+      const authorId = userId;
+      
+      // Parse arguments: flexible ordering to accommodate bet @player [amount] and bet [amount] @player
+      const cleanArg0 = args[0].replace(/[<@!>]/g, '');
+      const cleanArg1 = args[1].replace(/[<@!>]/g, '');
+
+      let targetId = null;
+      let amountInput = null;
+
+      // Match target ID: a string of 17-20 digits or starting with '<@'
+      const isArg0MentionOrId = /^\d{17,20}$/.test(cleanArg0) || args[0].startsWith('<@');
+      const isArg1MentionOrId = /^\d{17,20}$/.test(cleanArg1) || args[1].startsWith('<@');
+
+      if (isArg0MentionOrId) {
+        targetId = cleanArg0;
+        amountInput = args[1];
+      } else if (isArg1MentionOrId) {
+        targetId = cleanArg1;
+        amountInput = args[0];
+      } else {
+        return message.reply(`❌ Invalid arguments. Please specify a player (mention or ID) and a valid bet amount.`);
+      }
+
+      // Validate amount
+      const amount = parseGoldAmount(amountInput);
+      if (isNaN(amount) || amount <= 0) {
+        return message.reply(`❌ Please specify a valid positive amount of Gold to bet.`);
+      }
+
+      // Maximum limit check
+      const MAX_BET = 10000000000; // 10 Billion
+      if (amount > MAX_BET) {
+        return message.reply(`❌ Maximum bet amount is **10.000.000.000 Gold** (10B)!`);
+      }
+
+      // Check self-betting
+      if (targetId === authorId) {
+        return message.reply(`❌ You cannot challenge yourself to a dice bet!`);
+      }
+
+      // Fetch profiles
+      const senderProfile = await firebase.getUser(authorId);
+      if ((senderProfile.currency || 0) < amount) {
+        return message.reply(`❌ You do not have enough Gold! You currently have: **${(senderProfile.currency || 0).toLocaleString('id-ID')}** Gold.`);
+      }
+
+      let receiverProfile;
+      try {
+        receiverProfile = await firebase.getUser(targetId);
+      } catch (err) {
+        return message.reply(`❌ Could not find a player profile with the ID **${targetId}**.`);
+      }
+
+      if (!receiverProfile) {
+        return message.reply(`❌ The challenged player does not have an active RPG profile yet.`);
+      }
+
+      if ((receiverProfile.currency || 0) < amount) {
+        return message.reply(`❌ <@${targetId}> does not have enough Gold to accept this bet! They only have **${(receiverProfile.currency || 0).toLocaleString('id-ID')}** Gold.`);
+      }
+
+      // Check cooldown for the challenger
+      const cooldownKey = `${userId}-gamble`;
+      const now = Date.now();
+      if (cooldowns.has(cooldownKey)) {
+        const expiration = cooldowns.get(cooldownKey) + 10000;
+        if (now < expiration) {
+          const remaining = ((expiration - now) / 1000).toFixed(1);
+          return message.reply(`⏳ Please wait **${remaining}s** before gambling again.`);
+        }
+      }
+      
+      // All validations passed! Set cooldown
+      cooldowns.set(cooldownKey, now);
+
+      // Set unique custom IDs for the buttons to prevent collision
+      const acceptId = `dice_bet_accept_${authorId}_${targetId}_${Date.now()}`;
+      const declineId = `dice_bet_decline_${authorId}_${targetId}_${Date.now()}`;
+
+      const embed = new EmbedBuilder()
+        .setTitle('🎲 Dice Bet Challenge!')
+        .setColor('#9C27B0')
+        .setDescription(`<@${authorId}> has challenged <@${targetId}> to a dice bet of **${amount.toLocaleString('id-ID')}** Gold!\nBoth players will roll a 1-6 dice, and the highest roll wins the total pot of **${(amount * 2).toLocaleString('id-ID')}** Gold!\n\n**Admin (Dealer)** is waiting at the table...\n\n<@${targetId}>, do you accept this challenge?`)
+        .setTimestamp();
+
+      const row = new ActionRowBuilder()
+        .addComponents(
+          new ButtonBuilder()
+            .setCustomId(acceptId)
+            .setLabel('Accept Bet ✅')
+            .setStyle(ButtonStyle.Success),
+          new ButtonBuilder()
+            .setCustomId(declineId)
+            .setLabel('Decline ❌')
+            .setStyle(ButtonStyle.Danger)
+        );
+
+      const sentMsg = await message.reply({ embeds: [embed], components: [row] });
+
+      const filter = (i) => i.user.id === targetId && (i.customId === acceptId || i.customId === declineId);
+      const collector = sentMsg.createMessageComponentCollector({ filter, time: 60000 });
+
+      collector.on('collect', async (i) => {
+        try {
+          if (i.customId === declineId) {
+            collector.stop('declined');
+            return;
+          }
+
+          if (i.customId === acceptId) {
+            // Defer update to allow database logic
+            await i.deferUpdate();
+
+            // Fetch profiles again to ensure no double-spending
+            const p1 = await firebase.getUser(authorId);
+            const p2 = await firebase.getUser(targetId);
+
+            if ((p1.currency || 0) < amount) {
+              const disabledRow = new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId('db_acc_dis').setLabel('Accept').setStyle(ButtonStyle.Secondary).setDisabled(true),
+                new ButtonBuilder().setCustomId('db_dec_dis').setLabel('Decline').setStyle(ButtonStyle.Secondary).setDisabled(true)
+              );
+              await sentMsg.edit({ content: `❌ Bet cancelled: <@${authorId}> no longer has enough Gold.`, embeds: [], components: [disabledRow] });
+              collector.stop('insufficient_funds');
+              return;
+            }
+
+            if ((p2.currency || 0) < amount) {
+              const disabledRow = new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId('db_acc_dis').setLabel('Accept').setStyle(ButtonStyle.Secondary).setDisabled(true),
+                new ButtonBuilder().setCustomId('db_dec_dis').setLabel('Decline').setStyle(ButtonStyle.Secondary).setDisabled(true)
+              );
+              await sentMsg.edit({ content: `❌ Bet cancelled: <@${targetId}> does not have enough Gold.`, embeds: [], components: [disabledRow] });
+              collector.stop('insufficient_funds');
+              return;
+            }
+
+            // Deduct from both
+            p1.currency = (p1.currency || 0) - amount;
+            p2.currency = (p2.currency || 0) - amount;
+
+            await firebase.saveUser(authorId, p1);
+            await firebase.saveUser(targetId, p2);
+
+            // Roll Dice
+            const r1 = Math.floor(Math.random() * 6) + 1;
+            const r2 = Math.floor(Math.random() * 6) + 1;
+
+            const diceEmojis = {
+              1: '⚀',
+              2: '⚁',
+              3: '⚂',
+              4: '⚃',
+              5: '⚄',
+              6: '⚅'
+            };
+
+            const diceStr1 = `${diceEmojis[r1]} **${r1}**`;
+            const diceStr2 = `${diceEmojis[r2]} **${r2}**`;
+
+            let resultTitle = '🎲 Dice Bet Result';
+            let resultColor = '#4CAF50';
+            let resultDesc = `**Admin (Dealer)** rolls the dice at the table! 🎲\n\n👤 <@${authorId}> gets: ${diceStr1}\n👤 <@${targetId}> gets: ${diceStr2}\n\n`;
+
+            if (r1 > r2) {
+              // Player 1 wins
+              const updatedP1 = await firebase.getUser(authorId);
+              updatedP1.currency = (updatedP1.currency || 0) + (amount * 2);
+              await firebase.saveUser(authorId, updatedP1);
+
+              resultDesc += `🎉 **<@${authorId}> WINS!**\nReward: **+${(amount * 2).toLocaleString('id-ID')}** Gold`;
+            } else if (r2 > r1) {
+              // Player 2 wins
+              const updatedP2 = await firebase.getUser(targetId);
+              updatedP2.currency = (updatedP2.currency || 0) + (amount * 2);
+              await firebase.saveUser(targetId, updatedP2);
+
+              resultDesc += `🎉 **<@${targetId}> WINS!**\nReward: **+${(amount * 2).toLocaleString('id-ID')}** Gold`;
+            } else {
+              // Draw: refund
+              const updatedP1 = await firebase.getUser(authorId);
+              const updatedP2 = await firebase.getUser(targetId);
+
+              updatedP1.currency = (updatedP1.currency || 0) + amount;
+              updatedP2.currency = (updatedP2.currency || 0) + amount;
+
+              await firebase.saveUser(authorId, updatedP1);
+              await firebase.saveUser(targetId, updatedP2);
+
+              resultTitle = '🎲 Dice Bet Result (Draw)';
+              resultColor = '#FF9800';
+              resultDesc += `🤝 **It's a DRAW!**\nBets have been fully refunded back to both players.`;
+            }
+
+            const resultEmbed = new EmbedBuilder()
+              .setTitle(resultTitle)
+              .setColor(resultColor)
+              .setDescription(resultDesc)
+              .setTimestamp();
+
+            await sentMsg.edit({ embeds: [resultEmbed], components: [] });
+            collector.stop('completed');
+          }
+        } catch (err) {
+          console.error('[Dice Bet Collector Error]', err);
+          await sentMsg.edit({ content: '❌ An error occurred while processing the bet.', components: [] }).catch(() => {});
+          collector.stop('error');
+        }
+      });
+
+      collector.on('end', async (collected, reason) => {
+        if (reason === 'completed' || reason === 'insufficient_funds' || reason === 'error') return;
+
+        // Disable buttons on decline or timeout
+        const disabledRow = new ActionRowBuilder()
+          .addComponents(
+            new ButtonBuilder()
+              .setCustomId(acceptId)
+              .setLabel('Accept Bet')
+              .setStyle(ButtonStyle.Secondary)
+              .setDisabled(true),
+            new ButtonBuilder()
+              .setCustomId(declineId)
+              .setLabel('Decline')
+              .setStyle(ButtonStyle.Secondary)
+              .setDisabled(true)
+          );
+
+        if (reason === 'declined') {
+          const declinedEmbed = new EmbedBuilder()
+            .setTitle('🎲 Dice Bet Declined')
+            .setColor('#F44336')
+            .setDescription(`❌ <@${targetId}> declined the challenge from <@${authorId}>.`)
+            .setTimestamp();
+          await sentMsg.edit({ embeds: [declinedEmbed], components: [disabledRow] }).catch(() => {});
+        } else {
+          // Timeout
+          const timeoutEmbed = new EmbedBuilder()
+            .setTitle('🎲 Dice Bet Expired')
+            .setColor('#757575')
+            .setDescription(`⏳ The bet challenge from <@${authorId}> to <@${targetId}> has expired (no response within 60s).`)
+            .setTimestamp();
+          await sentMsg.edit({ embeds: [timeoutEmbed], components: [disabledRow] }).catch(() => {});
+        }
+      });
+
+    } catch (err) {
+      console.error('[Dice Bet Command Error]', err);
+      return message.reply('❌ Failed to process dice bet challenge.');
     }
   }
 
@@ -4557,7 +4887,7 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
 
       // Parse Bet Amount
       const betInput = args[0];
-      const betAmount = parseInt(betInput, 10);
+      const betAmount = parseGoldAmount(betInput);
       if (isNaN(betAmount) || betAmount <= 0) {
         return message.reply(`❌ Please enter a valid positive bet amount.`);
       }
@@ -4658,7 +4988,7 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
 
       // Parse Bet Amount
       const betInput = args[0];
-      const betAmount = parseInt(betInput, 10);
+      const betAmount = parseGoldAmount(betInput);
       if (isNaN(betAmount) || betAmount <= 0) {
         return message.reply(`❌ Please enter a valid positive bet amount.`);
       }
@@ -4759,7 +5089,7 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
 
       // Parse Bet Amount
       const betInput = args[0];
-      const betAmount = parseInt(betInput, 10);
+      const betAmount = parseGoldAmount(betInput);
       if (isNaN(betAmount) || betAmount <= 0) {
         return message.reply(`❌ Please enter a valid positive bet amount.`);
       }
@@ -4920,7 +5250,7 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
           return message.reply(`❌ You do not have any Gold to bet!`);
         }
       } else {
-        betAmount = parseInt(betInput, 10);
+        betAmount = parseGoldAmount(betInput);
         if (isNaN(betAmount) || betAmount <= 0) {
           return message.reply(`❌ Please enter a valid positive bet amount or \`all\`.`);
         }
@@ -5339,12 +5669,12 @@ client.on('interactionCreate', async (interaction) => {
 
   // Parse arguments based on commandName
   if (commandName === 'cf' || commandName === 'cfh') {
-    const bet = interaction.options.getInteger('bet');
+    const bet = interaction.options.getString('bet');
     const side = interaction.options.getString('side');
-    args.push(bet.toString(), side);
+    args.push(bet, side);
   } else if (commandName === 'slots') {
-    const bet = interaction.options.getInteger('bet');
-    args.push(bet.toString());
+    const bet = interaction.options.getString('bet');
+    args.push(bet);
   } else if (commandName === 'sloth') {
     const bet = interaction.options.getString('bet');
     args.push(bet.trim());
@@ -5402,8 +5732,12 @@ client.on('interactionCreate', async (interaction) => {
     args.push(prefix);
   } else if (commandName === 'give') {
     const user = interaction.options.getUser('user');
-    const amount = interaction.options.getInteger('amount');
-    args.push(user.id, amount.toString());
+    const amount = interaction.options.getString('amount');
+    args.push(user.id, amount);
+  } else if (commandName === 'bet') {
+    const user = interaction.options.getUser('player');
+    const amount = interaction.options.getString('amount');
+    args.push(user.id, amount);
   }
 
   // Resolve prefix for help command / display
