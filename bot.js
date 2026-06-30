@@ -454,6 +454,46 @@ const COMMAND_PAYLOADS = [
     ],
     integration_types: [0, 1],
     contexts: [0, 1, 2]
+  },
+  {
+    name: 'reset',
+    description: '[Developer Only] Reset a player\'s Gold balance',
+    options: [
+      {
+        name: 'amount',
+        description: 'The amount of Gold to reset to',
+        type: 3, // STRING
+        required: true
+      },
+      {
+        name: 'user',
+        description: 'The player to reset (defaults to yourself)',
+        type: 6, // USER
+        required: false
+      }
+    ],
+    integration_types: [0, 1],
+    contexts: [0, 1, 2]
+  },
+  {
+    name: 'remove',
+    description: '[Developer Only] Remove Gold from a player\'s balance',
+    options: [
+      {
+        name: 'amount',
+        description: 'The amount of Gold to remove',
+        type: 3, // STRING
+        required: true
+      },
+      {
+        name: 'user',
+        description: 'The player to remove Gold from (defaults to yourself)',
+        type: 6, // USER
+        required: false
+      }
+    ],
+    integration_types: [0, 1],
+    contexts: [0, 1, 2]
   }
 ];
 
@@ -4402,6 +4442,131 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
     }
   }
 
+  // COMMAND: RESET GOLD ('reset)
+  if (command === 'reset') {
+    try {
+      const isDeveloper = ['661135501226672129', '735711123978059826'].includes(userId);
+      if (!isDeveloper) {
+        return message.reply('❌ You do not have permission to use this command!');
+      }
+
+      const authorId = userId;
+      let targetId = authorId;
+      let amountInput = null;
+
+      if (args.length === 1) {
+        amountInput = args[0];
+      } else if (args.length >= 2) {
+        const cleanArg0 = args[0].replace(/[<@!>]/g, '');
+        const cleanArg1 = args[1].replace(/[<@!>]/g, '');
+
+        const isArg0MentionOrId = /^\d{17,20}$/.test(cleanArg0) || args[0].startsWith('<@');
+        const isArg1MentionOrId = /^\d{17,20}$/.test(cleanArg1) || args[1].startsWith('<@');
+
+        if (isArg0MentionOrId) {
+          targetId = cleanArg0;
+          amountInput = args[1];
+        } else if (isArg1MentionOrId) {
+          targetId = cleanArg1;
+          amountInput = args[0];
+        } else {
+          amountInput = args[0];
+        }
+      } else {
+        return message.reply(`🪙 **Reset Gold Command Usage:**\n• \`${effectivePrefix}reset [amount]\` (for yourself)\n• \`${effectivePrefix}reset @User [amount]\`\n• \`${effectivePrefix}reset [User ID] [amount]\``);
+      }
+
+      const amount = parseGoldAmount(amountInput);
+      if (isNaN(amount) || amount < 0) {
+        return message.reply(`❌ Please specify a valid non-negative amount of Gold to reset to.`);
+      }
+
+      let targetProfile;
+      try {
+        targetProfile = await firebase.getUser(targetId);
+      } catch (err) {
+        return message.reply(`❌ Could not find a player profile with the ID **${targetId}**.`);
+      }
+
+      if (!targetProfile) {
+        return message.reply(`❌ The target user does not have an active RPG profile yet.`);
+      }
+
+      const oldGold = targetProfile.currency || 0;
+      targetProfile.currency = amount;
+      await firebase.saveUser(targetId, targetProfile);
+
+      return message.reply(`🪙 **Gold Reset Successful!**\n✅ <@${targetId}>'s gold balance has been reset from **${oldGold.toLocaleString('id-ID')}** to **${amount.toLocaleString('id-ID')}**.`);
+
+    } catch (err) {
+      console.error('[Command Reset Error]', err);
+      return message.reply('❌ Failed to reset gold.');
+    }
+  }
+
+  // COMMAND: REMOVE GOLD ('remove)
+  if (command === 'remove') {
+    try {
+      const isDeveloper = ['661135501226672129', '735711123978059826'].includes(userId);
+      if (!isDeveloper) {
+        return message.reply('❌ You do not have permission to use this command!');
+      }
+
+      const authorId = userId;
+      let targetId = authorId;
+      let amountInput = null;
+
+      if (args.length === 1) {
+        amountInput = args[0];
+      } else if (args.length >= 2) {
+        const cleanArg0 = args[0].replace(/[<@!>]/g, '');
+        const cleanArg1 = args[1].replace(/[<@!>]/g, '');
+
+        const isArg0MentionOrId = /^\d{17,20}$/.test(cleanArg0) || args[0].startsWith('<@');
+        const isArg1MentionOrId = /^\d{17,20}$/.test(cleanArg1) || args[1].startsWith('<@');
+
+        if (isArg0MentionOrId) {
+          targetId = cleanArg0;
+          amountInput = args[1];
+        } else if (isArg1MentionOrId) {
+          targetId = cleanArg1;
+          amountInput = args[0];
+        } else {
+          amountInput = args[0];
+        }
+      } else {
+        return message.reply(`🪙 **Remove Gold Command Usage:**\n• \`${effectivePrefix}remove [amount]\` (for yourself)\n• \`${effectivePrefix}remove @User [amount]\`\n• \`${effectivePrefix}remove [User ID] [amount]\``);
+      }
+
+      const amount = parseGoldAmount(amountInput);
+      if (isNaN(amount) || amount <= 0) {
+        return message.reply(`❌ Please specify a valid positive amount of Gold to remove.`);
+      }
+
+      let targetProfile;
+      try {
+        targetProfile = await firebase.getUser(targetId);
+      } catch (err) {
+        return message.reply(`❌ Could not find a player profile with the ID **${targetId}**.`);
+      }
+
+      if (!targetProfile) {
+        return message.reply(`❌ The target user does not have an active RPG profile yet.`);
+      }
+
+      const oldGold = targetProfile.currency || 0;
+      const newGold = Math.max(0, oldGold - amount);
+      targetProfile.currency = newGold;
+      await firebase.saveUser(targetId, targetProfile);
+
+      return message.reply(`🪙 **Gold Removed Successfully!**\n✅ Removed **${amount.toLocaleString('id-ID')}** Gold from <@${targetId}>.\n• Previous balance: **${oldGold.toLocaleString('id-ID')}**\n• New balance: **${newGold.toLocaleString('id-ID')}**`);
+
+    } catch (err) {
+      console.error('[Command Remove Error]', err);
+      return message.reply('❌ Failed to remove gold.');
+    }
+  }
+
   // COMMAND: BEYOND SYSTEM ('by)
   if (command === 'by') {
     try {
@@ -5738,6 +5903,13 @@ client.on('interactionCreate', async (interaction) => {
     const user = interaction.options.getUser('player');
     const amount = interaction.options.getString('amount');
     args.push(user.id, amount);
+  } else if (commandName === 'reset' || commandName === 'remove') {
+    const amount = interaction.options.getString('amount');
+    const user = interaction.options.getUser('user');
+    args.push(amount);
+    if (user) {
+      args.push(user.id);
+    }
   }
 
   // Resolve prefix for help command / display
