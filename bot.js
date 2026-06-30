@@ -5124,7 +5124,10 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
           )
           .setTimestamp();
 
-        return message.reply({ embeds: [embed] });
+        return message.reply({
+          content: `💀 <@${userId}> kalah!\n\`'give <@${userId}> ${betAmount}\``,
+          embeds: [embed]
+        });
       }
 
     } catch (err) {
@@ -5225,7 +5228,10 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
           )
           .setTimestamp();
 
-        return message.reply({ embeds: [embed] });
+        return message.reply({
+          content: `💀 <@${userId}> kalah!\n\`'give <@${userId}> ${betAmount}\``,
+          embeds: [embed]
+        });
       }
 
     } catch (err) {
@@ -5372,7 +5378,10 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
           )
           .setTimestamp();
 
-        return message.reply({ embeds: [embed] });
+        return message.reply({
+          content: `💀 <@${userId}> kalah!\n\`'give <@${userId}> ${betAmount}\``,
+          embeds: [embed]
+        });
       }
 
     } catch (err) {
@@ -5532,7 +5541,10 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
           )
           .setTimestamp();
 
-        return message.reply({ embeds: [embed] });
+        return message.reply({
+          content: `💀 <@${userId}> kalah!\n\`'give <@${userId}> ${betAmount}\``,
+          embeds: [embed]
+        });
       }
 
     } catch (err) {
