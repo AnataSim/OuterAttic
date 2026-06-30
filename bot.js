@@ -494,6 +494,20 @@ const COMMAND_PAYLOADS = [
     ],
     integration_types: [0, 1],
     contexts: [0, 1, 2]
+  },
+  {
+    name: 'gold',
+    description: 'Check your Gold balance or another player\'s Gold',
+    options: [
+      {
+        name: 'user',
+        description: 'The player to check (defaults to yourself)',
+        type: 6, // USER
+        required: false
+      }
+    ],
+    integration_types: [0, 1],
+    contexts: [0, 1, 2]
   }
 ];
 
@@ -1703,7 +1717,8 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
         { name: `${effectivePrefix}by [info/up/down]`, value: "Beyond Threat Level system commands." },
         { name: `${effectivePrefix}voice`, value: "Upgrade your Voice Channel Idle Hunt and Loot intervals." },
         { name: `${effectivePrefix}give @User [amount]`, value: "Transfer Gold to another player." },
-        { name: `${effectivePrefix}bet @player [amount]`, value: "Challenge another player to a multiplayer dice bet." }
+        { name: `${effectivePrefix}bet @player [amount]`, value: "Challenge another player to a multiplayer dice bet." },
+        { name: `${effectivePrefix}gold [@User] or ${effectivePrefix}g [@User]`, value: "Check your Gold balance or another player's Gold." }
       )
       .setFooter({ text: `Active Prefix: ${effectivePrefix} | User Prefix: ${userPrefix || 'None'} | Server Prefix: ${serverPrefix || 'None'}` });
     return message.reply({ embeds: [embed] });
@@ -4567,6 +4582,70 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
     }
   }
 
+  // COMMAND: CHECK GOLD ('gold / 'g)
+  if (command === 'gold' || command === 'g') {
+    try {
+      const authorId = userId;
+      let targetId = authorId;
+
+      if (args.length >= 1) {
+        const cleanArg0 = args[0].replace(/[<@!>]/g, '');
+        const isArg0MentionOrId = /^\d{17,20}$/.test(cleanArg0) || args[0].startsWith('<@');
+        if (isArg0MentionOrId) {
+          targetId = cleanArg0;
+        }
+      }
+
+      let targetProfile;
+      try {
+        targetProfile = await firebase.getUser(targetId);
+      } catch (err) {
+        return message.reply(`❌ Could not find a player profile with the ID **${targetId}**.`);
+      }
+
+      if (!targetProfile) {
+        return message.reply(`❌ The target user does not have an active RPG profile yet.`);
+      }
+
+      // Fetch user profile object to resolve their name and avatar
+      let targetUserObj = null;
+      if (targetId === authorId) {
+        targetUserObj = message.author;
+      } else {
+        try {
+          targetUserObj = await client.users.fetch(targetId);
+        } catch (err) {
+          // ignore
+        }
+      }
+
+      const username = targetUserObj ? targetUserObj.username : `User (${targetId})`;
+      const avatarURL = targetUserObj ? targetUserObj.displayAvatarURL() : null;
+
+      const formatIndoNumber = (num) => num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+      const formattedGold = formatIndoNumber(targetProfile.currency || 0);
+
+      const embed = new EmbedBuilder()
+        .setTitle(`🪙 Gold Balance`)
+        .setColor('#FFD700')
+        .setDescription(`<@${targetId}> currently has:\n\n✨ **${formattedGold}** Gold`)
+        .setTimestamp();
+
+      if (avatarURL) {
+        embed.setAuthor({ name: username, iconURL: avatarURL });
+        embed.setThumbnail(avatarURL);
+      } else {
+        embed.setAuthor({ name: username });
+      }
+
+      return message.reply({ embeds: [embed] });
+
+    } catch (err) {
+      console.error('[Command Gold Error]', err);
+      return message.reply('❌ Failed to check gold balance.');
+    }
+  }
+
   // COMMAND: BEYOND SYSTEM ('by)
   if (command === 'by') {
     try {
@@ -5919,6 +5998,11 @@ client.on('interactionCreate', async (interaction) => {
     const amount = interaction.options.getString('amount');
     const user = interaction.options.getUser('user');
     args.push(amount);
+    if (user) {
+      args.push(user.id);
+    }
+  } else if (commandName === 'gold') {
+    const user = interaction.options.getUser('user');
     if (user) {
       args.push(user.id);
     }
