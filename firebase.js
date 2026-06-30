@@ -170,6 +170,19 @@ async function getUser(userId) {
     }
   }
 
+  // Enforce gold limit of 3.000.000.000.000.000.000 (3e18)
+  // Also migrate existing profiles near 2.799.999.999.999.671.000 to the max limit of 3e18
+  if (data.currency !== undefined) {
+    const limit = 3000000000000000000;
+    if (data.currency >= 2799999999999000000) {
+      data.currency = limit;
+      updated = true;
+    } else if (data.currency > limit) {
+      data.currency = limit;
+      updated = true;
+    }
+  }
+
   if (updated) {
     await docRef.set(data);
   }
@@ -180,6 +193,13 @@ async function getUser(userId) {
 async function saveUser(userId, profile) {
   if (!db) {
     throw new Error('Database is not initialized.');
+  }
+  // Enforce gold limit of 3.000.000.000.000.000.000 (3e18)
+  if (profile && profile.currency !== undefined) {
+    const limit = 3000000000000000000;
+    if (profile.currency > limit) {
+      profile.currency = limit;
+    }
   }
   const docRef = db.collection('rpg_users').doc(userId);
   await docRef.set(profile);
