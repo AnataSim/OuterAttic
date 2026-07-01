@@ -5653,10 +5653,15 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
 
       if (betInput.toLowerCase() === 'all') {
         isAllIn = true;
+        if ((profile.slothCount || 0) < 3) {
+          return message.reply(`❌ You must place a regular 'sloth bet of **1M - 50M** at least **3** times before you can use 'sloth all'! (Current count: **${profile.slothCount || 0}/3**)\n*Example:* \`${effectivePrefix}sloth 1m\``);
+        }
         betAmount = userGold;
         if (betAmount <= 0) {
           return message.reply(`❌ You do not have any Gold Ingot to bet!`);
         }
+        // Reset count
+        profile.slothCount = 0;
       } else {
         betAmount = parseGoldAmount(betInput);
         if (isNaN(betAmount) || betAmount <= 0) {
@@ -5667,6 +5672,10 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
         }
         if (userGold < betAmount) {
           return message.reply(`❌ You do not have enough Gold Ingot! You only have **${formatGoldIngot(userGold)}**.`);
+        }
+        // Increment count if within 1M-50M (1e-12 to 5e-11 grams)
+        if (betAmount >= 0.000000000001 && betAmount <= 0.00000000005) {
+          profile.slothCount = Math.min(3, (profile.slothCount || 0) + 1);
         }
       }
 
@@ -5748,7 +5757,8 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
             { name: 'Result', value: `🎉 **MATCH!** You got 3x ${winningSymbol}!\nWon **${formatGoldIngot(netProfit)}** Gold Ingot! (${multiplier}x payout)`, inline: false },
             { name: 'Your Gold Ingot Balance', value: `🪙 **${formatGoldIngot(profile.currency)}**`, inline: false }
           )
-          .setTimestamp();
+          .setTimestamp()
+          .setFooter({ text: `Progress to 'sloth all: ${profile.slothCount || 0}/3` });
 
         return message.reply({ embeds: [embed] });
       } else {
@@ -5785,7 +5795,8 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
             { name: 'Result', value: `💀 **NO MATCH!** Better luck next time!\nLost **${formatGoldIngot(betAmount - cashback)}** Gold Ingot.${cashback > 0 ? ` (Cashback: ${formatGoldIngot(cashback)})` : ''}${isAllIn ? '\n⚠️ **All-In Penalty**: You are blocked from receiving gifts (\`\'give\`) for 1 hour!' : ''}`, inline: false },
             { name: 'Your Gold Ingot Balance', value: `🪙 **${formatGoldIngot(profile.currency)}**`, inline: false }
           )
-          .setTimestamp();
+          .setTimestamp()
+          .setFooter({ text: `Progress to 'sloth all: ${profile.slothCount || 0}/3` });
 
         return message.reply({
           content: `💀 <@${userId}> kalah!\n\`\`\`cgive <@${userId}> ${formatIngotNumber(betAmount)}g\`\`\``,
