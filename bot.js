@@ -817,7 +817,25 @@ function formatIngotNumber(grams) {
 }
 
 function formatGoldIngot(grams) {
-  return formatIngotNumber(grams) + 'g';
+  if (grams === 0) return '0g';
+  const integerPart = Math.floor(grams);
+  const fractionalPart = grams - integerPart;
+  
+  if (fractionalPart > 0) {
+    let pct = (fractionalPart * 100).toFixed(1);
+    if (pct === '100.0') {
+      return `${integerPart + 1}g`;
+    }
+    if (pct === '0.0') {
+      return `${integerPart}g`;
+    }
+    if (pct.endsWith('.0')) {
+      pct = pct.slice(0, -2);
+    }
+    return `${integerPart}g (${pct}%)`;
+  }
+  
+  return `${integerPart}g`;
 }
 
 function formatCompactGold(value) {
@@ -4668,18 +4686,19 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
       usersSnap.forEach(doc => {
         const data = doc.data();
         const currentGold = data.currency || 0;
-        const ingotGained = currentGold / 10000000000000000000; // 1 Ingot = 10 Quintrillion Gold
+        const ingotGained = currentGold / 1000000000000000000; // 1 Ingot = 1 Quintrillion Gold (1e18)
         const newIngots = (data.ingot || 0) + ingotGained;
 
         batch.update(doc.ref, { 
           currency: resetVal,
-          ingot: newIngots
+          ingot: newIngots,
+          currencyMigrated: firebase.FieldValue.delete()
         });
         count++;
       });
       
       await batch.commit();
-      return message.reply(`🌅 **Season Reset Initiated!**\n✅ Converted players' Gold to Gold Ingot at a rate of **1 Gold Ingot per 10 Quintrillion Gold**.\n✅ Successfully reset **${count}** players' Gold balances to **200.000.000.000 Gold** (200 Miliar Gold).`);
+      return message.reply(`🌅 **Season Reset Initiated!**\n✅ Converted players' Gold to Gold Ingot at a rate of **1 Gold Ingot per 1 Quintrillion Gold**.\n✅ Successfully reset **${count}** players' Gold balances to **200.000.000.000 Gold** (200 Miliar Gold).`);
     } catch (err) {
       console.error('[Command Season Error]', err);
       return message.reply('❌ Failed to run season reset.');
@@ -5725,6 +5744,11 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
 
       // All validations passed! Set cooldown
       cooldowns.set(cooldownKey, now);
+
+      // Cooldown reminder
+      setTimeout(() => {
+        message.channel.send(`🔔 <@${userId}>, cooldown **'sloth** sudah selesai! Kamu bisa main lagi.`).catch(err => console.error('Failed to send sloth reminder:', err));
+      }, 10000);
 
       const SYMBOLS = ['🍒', '🍋', '🍇', '💎', '👑'];
       

@@ -178,9 +178,9 @@ async function getUser(userId) {
     }
   }
 
-  // Enforce gold limit of 3e18 Gold
+  // Enforce gold limit of 200 Billion Gold (200e9)
   if (data.currency !== undefined) {
-    const limit = 3000000000000000000;
+    const limit = 200000000000;
     if (data.currency > limit) {
       data.currency = limit;
       updated = true;
@@ -198,9 +198,9 @@ async function saveUser(userId, profile) {
   if (!db) {
     throw new Error('Database is not initialized.');
   }
-  // Enforce gold limit of 3e18 Gold
+  // Enforce gold limit of 200 Billion Gold (200e9)
   if (profile && profile.currency !== undefined) {
-    const limit = 3000000000000000000;
+    const limit = 200000000000;
     if (profile.currency > limit) {
       profile.currency = limit;
     }
@@ -263,6 +263,7 @@ module.exports = {
   saveServerPrefix,
   getSystemConfig,
   saveSystemConfig,
+  FieldValue: admin.firestore.FieldValue,
   isInitialized: () => !!db
 };
 
