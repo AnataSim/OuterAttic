@@ -5691,7 +5691,7 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
   if (command === 'sloth' || command === 'slothigh') {
     try {
       if (args.length < 1) {
-        return message.reply(`🎰 **High-Stakes Slot Machine Command Usage:**\n• \`${effectivePrefix}sloth [bet_amount/all]\` (Max bet: 50.000.000 Gold, 30% win chance)\n*Example:* \`${effectivePrefix}sloth 1000000\` or \`${effectivePrefix}sloth all\``);
+        return message.reply(`🎰 **High-Stakes Slot Machine Command Usage:**\n• \`${effectivePrefix}sloth [bet_amount/all]\` (Max bet: 200.000.000.000 Gold, 30% win chance)\n*Example:* \`${effectivePrefix}sloth 1000000\` or \`${effectivePrefix}sloth all\``);
       }
 
       // Check cooldown
@@ -5730,8 +5730,8 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
         if (isNaN(betAmount) || betAmount <= 0) {
           return message.reply(`❌ Please enter a valid positive bet amount or \`all\`.`);
         }
-        if (betAmount > 50000000) {
-          return message.reply(`❌ Maximum bet amount is **50.000.000 Gold**!`);
+        if (betAmount > 200000000000) {
+          return message.reply(`❌ Maximum bet amount is **200.000.000.000 Gold**!`);
         }
         if (userGold < betAmount) {
           return message.reply(`❌ You do not have enough Gold! You only have **${userGold.toLocaleString('id-ID')}** Gold.`);
