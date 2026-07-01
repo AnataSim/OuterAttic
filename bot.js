@@ -809,16 +809,33 @@ function getForgeProgressionText(weapon, forgeLvl) {
 }
 
 // Helper to parse shorthand gold amounts (e.g. 10k, 10m, 10b, 10jt, 10rb)
+function formatIngotNumber(grams) {
+  if (grams === 0) return '0';
+  let str = grams.toFixed(18);
+  str = str.replace(/\.?0+$/, "");
+  return str;
+}
+
+function formatGoldIngot(grams) {
+  return formatIngotNumber(grams) + 'g';
+}
+
 function parseGoldAmount(input) {
   if (input === null || input === undefined) return NaN;
   const str = input.toString().trim().toLowerCase().replace(/,/g, '.');
+  
+  // Strip trailing 'g', 'gram', 'grams'
+  const cleanStr = str.replace(/g(?:ram)?s?$/, '').trim();
 
   // Regex to extract numeric part and suffix
-  const match = str.match(/^([\d\.]+)\s*(k|m|b|t|rb|jt)?$/);
+  const match = cleanStr.match(/^([\d\.]+)\s*(k|m|b|t|rb|jt)?$/);
   if (!match) {
-    // If it has multiple dots or is just a large formatted number like 1.000.000 without suffix
-    const cleanInt = str.replace(/\./g, '');
-    return parseInt(cleanInt, 10);
+    const cleanInt = cleanStr.replace(/\./g, '');
+    const val = parseFloat(cleanInt);
+    if (val >= 1000) {
+      return val / 1000000000000000000;
+    }
+    return val;
   }
 
   const numPart = parseFloat(match[1]);
@@ -828,11 +845,16 @@ function parseGoldAmount(input) {
 
   if (!suffix) {
     // Check if dot was a thousands separator (e.g., 10.000 -> 10000) or decimal (e.g. 10.5)
-    if (str.includes('.')) {
-      const parts = str.split('.');
+    if (cleanStr.includes('.')) {
+      const parts = cleanStr.split('.');
       if (parts.length > 2 || (parts.length === 2 && parts[1].length === 3)) {
-        return parseInt(str.replace(/\./g, ''), 10);
+        const val = parseInt(cleanStr.replace(/\./g, ''), 10);
+        if (val >= 1000) return val / 1000000000000000000;
+        return val;
       }
+    }
+    if (numPart >= 1000) {
+      return numPart / 1000000000000000000;
     }
     return numPart;
   }
@@ -855,7 +877,8 @@ function parseGoldAmount(input) {
       break;
   }
 
-  return Math.floor(numPart * multiplier);
+  const goldVal = numPart * multiplier;
+  return goldVal / 1000000000000000000;
 }
 
 // Helper to format XP bar
@@ -1124,8 +1147,8 @@ function getUnlockedAchievements(profile, member = null, allUsers = []) {
   // 4. I\'m the Danger - Lobby Threat Level +5
   list.push({ id: 'danger', title: "I'm the Danger", desc: 'Lobby Threat Level +5', unlocked: (profile.lobbyThreatOffset || 0) >= 5 });
 
-  // 5. No Golds? - Getting 50.000.000 Golds
-  list.push({ id: 'no_golds', title: 'No Golds?', desc: 'Getting 50.000.000 Golds', unlocked: (profile.currency || 0) >= 50000000 });
+  // 5. No Golds? - Getting 0.00000000005g Gold Ingot
+  list.push({ id: 'no_golds', title: 'No Golds?', desc: 'Getting 0.00000000005g Gold Ingot', unlocked: (profile.currency || 0) >= 0.00000000005 });
 
   // 6. I\'m Learning - Reached Level Player: 25
   list.push({ id: 'learning', title: "I'm Learning", desc: 'Reached Level Player: 25', unlocked: (profile.level || 1) >= 25 });
@@ -1401,9 +1424,9 @@ async function executeSingleVoiceHunt(member, profile) {
       profile.elementalStones = (profile.elementalStones || 0) + stoneReward;
     }
 
-    profile.currency += goldGained;
+    profile.currency += goldGained / 1000000000000000000;
     const levelUp = addXP(profile, xpGained);
-    huntOutcome = `⚔️ Victory vs **${monster.displayName || monster.name}** (${threatLabel}) (+${goldGained.toLocaleString('id-ID')} Gold, +${xpGained.toLocaleString('id-ID')} XP)`;
+    huntOutcome = `⚔️ Victory vs **${monster.displayName || monster.name}** (${threatLabel}) (+${formatGoldIngot(goldGained / 1000000000000000000)} Gold Ingot, +${xpGained.toLocaleString('id-ID')} XP)`;
 
     let tamed = false;
     let isDuplicate = false;
@@ -1438,8 +1461,8 @@ async function executeSingleVoiceHunt(member, profile) {
           newForgeLevel = mData.enchanted;
           forgeLevelUp = true;
         } else {
-          tameGoldBonus = Math.floor(goldGained * 0.5);
-          profile.currency += tameGoldBonus;
+          tameGoldBonus = goldGained * 0.5;
+          profile.currency += tameGoldBonus / 1000000000000000000;
         }
       }
 
@@ -1447,7 +1470,7 @@ async function executeSingleVoiceHunt(member, profile) {
         if (forgeLevelUp) {
           huntOutcome += ` (👾 Tamed duplicate! Upgraded to Enchanted ${newForgeLevel})`;
         } else {
-          huntOutcome += ` (Already tamed at Max Enchanted! Converted +${tameGoldBonus.toLocaleString('id-ID')} Gold)`;
+          huntOutcome += ` (Already tamed at Max Enchanted! Converted +${formatGoldIngot(tameGoldBonus / 1000000000000000000)} Gold Ingot)`;
         }
       } else {
         huntOutcome += ` (✨ TAMED **${monster.name}**!)`;
@@ -1564,8 +1587,8 @@ async function executeSingleVoiceLoot(member, profile) {
       if (hasF6Onfield) {
         sellVal = Math.floor(sellVal * 3);
       }
-      profile.currency += sellVal;
-      lootOutcome = `🎁 Duplicate **${weapon.name}** (${weaponInfo} - Sold for +${sellVal.toLocaleString('id-ID')}g)`;
+      profile.currency += sellVal / 1000000000000000000;
+      lootOutcome = `🎁 Duplicate **${weapon.name}** (${weaponInfo} - Sold for +${formatGoldIngot(sellVal / 1000000000000000000)})`;
     }
   }
 
@@ -1590,13 +1613,21 @@ async function runVoiceTick() {
   for (const [guildId, guild] of client.guilds.cache) {
     try {
       const activeVoiceUsers = [];
-      await guild.members.fetch();
       
-      for (const [memberId, member] of guild.members.cache) {
-        if (member.user.bot) continue;
-        
-        const voiceState = member.voice;
-        if (voiceState && voiceState.channelId) {
+      for (const [memberId, voiceState] of guild.voiceStates.cache) {
+        if (!voiceState.channelId) continue;
+        let member = voiceState.member;
+        if (!member) {
+          member = guild.members.cache.get(memberId);
+        }
+        if (!member) {
+          try {
+            member = await guild.members.fetch(memberId);
+          } catch (e) {
+            // Ignore fetch failure
+          }
+        }
+        if (member && !member.user.bot) {
           activeVoiceUsers.push(member);
         }
       }
@@ -1829,7 +1860,7 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
           }
           
           profile.killedTXKirin = true;
-          profile.currency += goldGained;
+          profile.currency += goldGained / 1000000000000000000;
           profile.elementalStones = (profile.elementalStones || 0) + stoneReward;
           levelUp = addXP(profile, xpGained);
           equipLvlUps = addEquipXP(profile, activeTeam, true);
@@ -1954,13 +1985,13 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
                 newForgeLevel = mData.enchanted;
                 forgeLevelUp = true;
               } else {
-                tameGoldBonus = Math.floor(goldGained * 0.5);
-                profile.currency += tameGoldBonus;
+                tameGoldBonus = goldGained * 0.5;
+                profile.currency += tameGoldBonus / 1000000000000000000;
               }
             }
           }
 
-          profile.currency += goldGained;
+          profile.currency += goldGained / 1000000000000000000;
           levelUp = addXP(profile, xpGained);
           equipLvlUps = addEquipXP(profile, activeTeam, true);
 
@@ -2461,13 +2492,13 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
               newForgeLevel = mData.enchanted;
               forgeLevelUp = true;
             } else {
-              tameGoldBonus = Math.floor(goldGained * 0.5);
-              profile.currency += tameGoldBonus;
+              tameGoldBonus = goldGained * 0.5;
+              profile.currency += tameGoldBonus / 1000000000000000000;
             }
           }
         }
 
-        profile.currency += goldGained;
+        profile.currency += goldGained / 1000000000000000000;
         levelUp = addXP(profile, xpGained);
         equipLvlUps = addEquipXP(profile, activeTeam, true);
 
@@ -2701,7 +2732,7 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
           newLootForgeLevel = wData.forge;
           forgedUpgraded = true;
         } else {
-          profile.currency += lootGoldGained;
+          profile.currency += lootGoldGained / 1000000000000000000;
         }
 
         if (forgedUpgraded) {
@@ -2729,7 +2760,7 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
 
           if (lootLayout === 'informative') {
             lootEmbed.addFields(
-              { name: '🪙 Recycled Gold', value: `+${lootGoldGained} Gold`, inline: true },
+              { name: '🪙 Recycled Gold Ingot', value: `+${formatGoldIngot(lootGoldGained / 1000000000000000000)}`, inline: true },
               { name: '💎 Rarity & Category', value: `${weapon.rarity.toUpperCase()} (${weapon.category.toUpperCase()})`, inline: true },
               { name: '✨ XP Reward', value: `+${lootXp} XP`, inline: false }
             );
@@ -2738,7 +2769,7 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
             const formatCategory = (c) => c === 'dps' ? 'DPS' : c.charAt(0).toUpperCase() + c.slice(1);
 
             lootEmbed.setFooter({
-              text: `Rarity: ${formatRarity(weapon.rarity)} | Category: ${formatCategory(weapon.category)} | +${lootXp} XP | +${lootGoldGained} Golds`
+              text: `Rarity: ${formatRarity(weapon.rarity)} | Category: ${formatCategory(weapon.category)} | +${lootXp} XP | +${formatGoldIngot(lootGoldGained / 1000000000000000000)}`
             });
           }
         }
@@ -2920,7 +2951,7 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
           newForgeLevel = wData.forge;
           forgedUpgraded = true;
         } else {
-          profile.currency += goldGained;
+          profile.currency += goldGained / 1000000000000000000;
         }
 
         await firebase.saveUser(userId, profile);
@@ -2950,7 +2981,7 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
 
           if (layout === 'informative') {
             embed.addFields(
-              { name: '🪙 Recycled Gold', value: `+${goldGained} Gold`, inline: true },
+              { name: '🪙 Recycled Gold Ingot', value: `+${formatGoldIngot(goldGained / 1000000000000000000)}`, inline: true },
               { name: '💎 Rarity & Category', value: `${weapon.rarity.toUpperCase()} (${weapon.category.toUpperCase()})`, inline: true },
               { name: '✨ XP Reward', value: `+${lootXp} XP`, inline: false }
             );
@@ -2959,7 +2990,7 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
             const formatCategory = (c) => c === 'dps' ? 'DPS' : c.charAt(0).toUpperCase() + c.slice(1);
 
             embed.setFooter({
-              text: `Rarity: ${formatRarity(weapon.rarity)} | Category: ${formatCategory(weapon.category)} | +${lootXp} XP | +${goldGained} Golds`
+              text: `Rarity: ${formatRarity(weapon.rarity)} | Category: ${formatCategory(weapon.category)} | +${lootXp} XP | +${formatGoldIngot(goldGained / 1000000000000000000)}`
             });
           }
         }
@@ -3029,11 +3060,9 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
         }
       }
 
-      const formatIndoNumber = (num) => num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".");
-
-      const formattedGold = formatIndoNumber(profile.currency || 0);
+      const formattedGold = formatGoldIngot(profile.currency || 0);
       const progressPct = Math.floor((profile.xp / xpReq) * 100);
-      const levelProgressText = `Level Player: **${profile.level}**\nProgress: \`[${progressBar}]\` (${progressPct}%)\nXP Player: **${profile.xp}/${xpReq}**\nGold: **${formattedGold}**\nPS: **${ps}/120**\n💎 Elemental Stones: **${profile.elementalStones || 0}**\n☣️ Lobby Threat Level: **${profile.lobbyThreatOffset >= 0 ? '+' : ''}${profile.lobbyThreatOffset || 0}**\n🌌 Beyond Level: **${profile.beyondLevel || 0}**`;
+      const levelProgressText = `Level Player: **${profile.level}**\nProgress: \`[${progressBar}]\` (${progressPct}%)\nXP Player: **${profile.xp}/${xpReq}**\nGold Ingot: **${formattedGold}**\nPS: **${ps}/120**\n💎 Elemental Stones: **${profile.elementalStones || 0}**\n☣️ Lobby Threat Level: **${profile.lobbyThreatOffset >= 0 ? '+' : ''}${profile.lobbyThreatOffset || 0}**\n🌌 Beyond Level: **${profile.beyondLevel || 0}**`;
 
       const combatStatsText = `❤️ **HP**: ${stats.hp}\n⚔️ **ATK**: ${stats.atk}\n🛡️ **DEF**: ${stats.def}\n🪄 **Heal**: +${stats.healAmount} HP/rd`;
 
@@ -3235,15 +3264,13 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
         .setColor('#FFD700')
         .setTimestamp();
 
-      const formatNumber = (num) => num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".");
-
       const lines = top10.map((u, index) => {
         const medal = index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : `${index + 1}.`;
-        const goldText = formatNumber(u.currency || 0);
+        const goldText = formatGoldIngot(u.currency || 0);
         if (isGoldSort) {
-          return `${medal} <@${u.userId}> • 🪙 **${goldText}** Gold • **Lv.${u.level}** (${u.xp} XP) • 🎖️ **${u.huntMarks || 0}** Marks`;
+          return `${medal} <@${u.userId}> • 🪙 **${goldText} Gold Ingot** • **Lv.${u.level}** (${u.xp} XP) • 🎖️ **${u.huntMarks || 0}** Marks`;
         } else {
-          return `${medal} <@${u.userId}> • **Lv.${u.level}** (${u.xp} XP) • 🪙 **${goldText}** Gold • 🎖️ **${u.huntMarks || 0}** Marks`;
+          return `${medal} <@${u.userId}> • **Lv.${u.level}** (${u.xp} XP) • 🪙 **${goldText} Gold Ingot** • 🎖️ **${u.huntMarks || 0}** Marks`;
         }
       });
 
@@ -4142,7 +4169,7 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
   if (command === 'give') {
     try {
       if (args.length < 2) {
-        return message.reply(`🪙 **Give Gold Command Usage:**\n• \`${effectivePrefix}give @User [amount]\`\n• \`${effectivePrefix}give [User ID] [amount]\``);
+        return message.reply(`🪙 **Give Gold Ingot Command Usage:**\n• \`${effectivePrefix}give @User [amount]\` (e.g., \`0.0000002g\`)\n• \`${effectivePrefix}give [User ID] [amount]\``);
       }
 
       const authorId = userId;
@@ -4152,17 +4179,17 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
       targetId = targetId.replace(/[<@!>]/g, '');
 
       if (targetId === authorId) {
-        return message.reply(`❌ You cannot give Gold to yourself!`);
+        return message.reply(`❌ You cannot give Gold Ingot to yourself!`);
       }
 
       const amount = parseGoldAmount(args[1]);
       if (isNaN(amount) || amount <= 0) {
-        return message.reply(`❌ Please specify a valid amount of Gold to give.`);
+        return message.reply(`❌ Please specify a valid amount of Gold Ingot to give.`);
       }
 
       const senderProfile = await firebase.getUser(authorId);
       if ((senderProfile.currency || 0) < amount) {
-        return message.reply(`❌ You do not have enough Gold! You currently have: **${(senderProfile.currency || 0).toLocaleString('id-ID')}** Gold.`);
+        return message.reply(`❌ You do not have enough Gold Ingot! You currently have: **${formatGoldIngot(senderProfile.currency || 0)}**.`);
       }
 
       let receiverProfile;
@@ -4190,7 +4217,7 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
       await firebase.saveUser(authorId, senderProfile);
       await firebase.saveUser(targetId, receiverProfile);
 
-      return message.reply(`🪙 **Transaction Successful!**\n✅ You gave **${amount.toLocaleString('id-ID')}** Gold to <@${targetId}>.`);
+      return message.reply(`🪙 **Transaction Successful!**\n✅ You gave **${formatGoldIngot(amount)}** Gold Ingot to <@${targetId}>.`);
 
     } catch (err) {
       console.error('[Command Give Error]', err);
@@ -4231,13 +4258,13 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
       // Validate amount
       const amount = parseGoldAmount(amountInput);
       if (isNaN(amount) || amount <= 0) {
-        return message.reply(`❌ Please specify a valid positive amount of Gold to bet.`);
+        return message.reply(`❌ Please specify a valid positive amount of Gold Ingot to bet.`);
       }
 
-      // Maximum limit check
-      const MAX_BET = 10000000000; // 10 Billion
+      // Maximum limit check (10 Billion equivalent in grams)
+      const MAX_BET = 0.00000001; 
       if (amount > MAX_BET) {
-        return message.reply(`❌ Maximum bet amount is **10.000.000.000 Gold** (10B)!`);
+        return message.reply(`❌ Maximum bet amount is **0.00000001g** Gold Ingot (10B Gold equivalent)!`);
       }
 
       // Check self-betting
@@ -4248,7 +4275,7 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
       // Fetch profiles
       const senderProfile = await firebase.getUser(authorId);
       if ((senderProfile.currency || 0) < amount) {
-        return message.reply(`❌ You do not have enough Gold! You currently have: **${(senderProfile.currency || 0).toLocaleString('id-ID')}** Gold.`);
+        return message.reply(`❌ You do not have enough Gold Ingot! You currently have: **${formatGoldIngot(senderProfile.currency || 0)}**.`);
       }
 
       let receiverProfile;
@@ -4263,7 +4290,7 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
       }
 
       if ((receiverProfile.currency || 0) < amount) {
-        return message.reply(`❌ <@${targetId}> does not have enough Gold to accept this bet! They only have **${(receiverProfile.currency || 0).toLocaleString('id-ID')}** Gold.`);
+        return message.reply(`❌ <@${targetId}> does not have enough Gold Ingot to accept this bet! They only have **${formatGoldIngot(receiverProfile.currency || 0)}**.`);
       }
 
       // Check cooldown for the challenger
@@ -4287,7 +4314,7 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
       const embed = new EmbedBuilder()
         .setTitle('🎲 Dice Bet Challenge!')
         .setColor('#9C27B0')
-        .setDescription(`<@${authorId}> has challenged <@${targetId}> to a dice bet of **${amount.toLocaleString('id-ID')}** Gold!\nBoth players will roll a 1-6 dice, and the highest roll wins the total pot of **${(amount * 2).toLocaleString('id-ID')}** Gold!\n\n**Admin (Dealer)** is waiting at the table...\n\n<@${targetId}>, do you accept this challenge?`)
+        .setDescription(`<@${authorId}> has challenged <@${targetId}> to a dice bet of **${formatGoldIngot(amount)}** Gold Ingot!\nBoth players will roll a 1-6 dice, and the highest roll wins the total pot of **${formatGoldIngot(amount * 2)}** Gold Ingot!\n\n**Admin (Dealer)** is waiting at the table...\n\n<@${targetId}>, do you accept this challenge?`)
         .setTimestamp();
 
       const row = new ActionRowBuilder()
@@ -4327,7 +4354,7 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
                 new ButtonBuilder().setCustomId('db_acc_dis').setLabel('Accept').setStyle(ButtonStyle.Secondary).setDisabled(true),
                 new ButtonBuilder().setCustomId('db_dec_dis').setLabel('Decline').setStyle(ButtonStyle.Secondary).setDisabled(true)
               );
-              await sentMsg.edit({ content: `❌ Bet cancelled: <@${authorId}> no longer has enough Gold.`, embeds: [], components: [disabledRow] });
+              await sentMsg.edit({ content: `❌ Bet cancelled: <@${authorId}> no longer has enough Gold Ingot.`, embeds: [], components: [disabledRow] });
               collector.stop('insufficient_funds');
               return;
             }
@@ -4337,7 +4364,7 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
                 new ButtonBuilder().setCustomId('db_acc_dis').setLabel('Accept').setStyle(ButtonStyle.Secondary).setDisabled(true),
                 new ButtonBuilder().setCustomId('db_dec_dis').setLabel('Decline').setStyle(ButtonStyle.Secondary).setDisabled(true)
               );
-              await sentMsg.edit({ content: `❌ Bet cancelled: <@${targetId}> does not have enough Gold.`, embeds: [], components: [disabledRow] });
+              await sentMsg.edit({ content: `❌ Bet cancelled: <@${targetId}> does not have enough Gold Ingot.`, embeds: [], components: [disabledRow] });
               collector.stop('insufficient_funds');
               return;
             }
@@ -4375,14 +4402,14 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
               updatedP1.currency = (updatedP1.currency || 0) + (amount * 2);
               await firebase.saveUser(authorId, updatedP1);
 
-              resultDesc += `🎉 **<@${authorId}> WINS!**\nReward: **+${(amount * 2).toLocaleString('id-ID')}** Gold`;
+              resultDesc += `🎉 **<@${authorId}> WINS!**\nReward: **+${formatGoldIngot(amount * 2)}**`;
             } else if (r2 > r1) {
               // Player 2 wins
               const updatedP2 = await firebase.getUser(targetId);
               updatedP2.currency = (updatedP2.currency || 0) + (amount * 2);
               await firebase.saveUser(targetId, updatedP2);
 
-              resultDesc += `🎉 **<@${targetId}> WINS!**\nReward: **+${(amount * 2).toLocaleString('id-ID')}** Gold`;
+              resultDesc += `🎉 **<@${targetId}> WINS!**\nReward: **+${formatGoldIngot(amount * 2)}**`;
             } else {
               // Draw: refund
               const updatedP1 = await firebase.getUser(authorId);
@@ -4414,6 +4441,7 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
           collector.stop('error');
         }
       });
+
 
       collector.on('end', async (collected, reason) => {
         if (reason === 'completed' || reason === 'insufficient_funds' || reason === 'error') return;
@@ -4488,12 +4516,12 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
           amountInput = args[0];
         }
       } else {
-        return message.reply(`🪙 **Reset Gold Command Usage:**\n• \`${effectivePrefix}reset [amount]\` (for yourself)\n• \`${effectivePrefix}reset @User [amount]\`\n• \`${effectivePrefix}reset [User ID] [amount]\``);
+        return message.reply(`🪙 **Reset Gold Ingot Command Usage:**\n• \`${effectivePrefix}reset [amount]\` (for yourself)\n• \`${effectivePrefix}reset @User [amount]\`\n• \`${effectivePrefix}reset [User ID] [amount]\``);
       }
 
       const amount = parseGoldAmount(amountInput);
       if (isNaN(amount) || amount < 0) {
-        return message.reply(`❌ Please specify a valid non-negative amount of Gold to reset to.`);
+        return message.reply(`❌ Please specify a valid non-negative amount of Gold Ingot to reset to.`);
       }
 
       let targetProfile;
@@ -4511,7 +4539,7 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
       targetProfile.currency = amount;
       await firebase.saveUser(targetId, targetProfile);
 
-      return message.reply(`🪙 **Gold Reset Successful!**\n✅ <@${targetId}>'s gold balance has been reset from **${oldGold.toLocaleString('id-ID')}** to **${amount.toLocaleString('id-ID')}**.`);
+      return message.reply(`🪙 **Gold Ingot Reset Successful!**\n✅ <@${targetId}>'s balance has been reset from **${formatGoldIngot(oldGold)}** to **${formatGoldIngot(amount)}**.`);
 
     } catch (err) {
       console.error('[Command Reset Error]', err);
@@ -4550,12 +4578,12 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
           amountInput = args[0];
         }
       } else {
-        return message.reply(`🪙 **Remove Gold Command Usage:**\n• \`${effectivePrefix}remove [amount]\` (for yourself)\n• \`${effectivePrefix}remove @User [amount]\`\n• \`${effectivePrefix}remove [User ID] [amount]\``);
+        return message.reply(`🪙 **Remove Gold Ingot Command Usage:**\n• \`${effectivePrefix}remove [amount]\` (for yourself)\n• \`${effectivePrefix}remove @User [amount]\`\n• \`${effectivePrefix}remove [User ID] [amount]\``);
       }
 
       const amount = parseGoldAmount(amountInput);
       if (isNaN(amount) || amount <= 0) {
-        return message.reply(`❌ Please specify a valid positive amount of Gold to remove.`);
+        return message.reply(`❌ Please specify a valid positive amount of Gold Ingot to remove.`);
       }
 
       let targetProfile;
@@ -4574,11 +4602,102 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
       targetProfile.currency = newGold;
       await firebase.saveUser(targetId, targetProfile);
 
-      return message.reply(`🪙 **Gold Removed Successfully!**\n✅ Removed **${amount.toLocaleString('id-ID')}** Gold from <@${targetId}>.\n• Previous balance: **${oldGold.toLocaleString('id-ID')}**\n• New balance: **${newGold.toLocaleString('id-ID')}**`);
+      return message.reply(`🪙 **Gold Ingot Removed Successfully!**\n✅ Removed **${formatGoldIngot(amount)}** Gold Ingot from <@${targetId}>.\n• Previous balance: **${formatGoldIngot(oldGold)}**\n• New balance: **${formatGoldIngot(newGold)}**`);
 
     } catch (err) {
       console.error('[Command Remove Error]', err);
       return message.reply('❌ Failed to remove gold.');
+    }
+  }
+
+  // COMMAND: SEASON RESET ('season)
+  if (command === 'season') {
+    try {
+      if (userId !== '661135501226672129') {
+        return message.reply('❌ You do not have permission to run the season reset command!');
+      }
+
+      if (!firebase.db) {
+        return message.reply('❌ Database is not initialized.');
+      }
+
+      // Fetch all users
+      const usersSnap = await firebase.db.collection('rpg_users').get();
+      const batch = firebase.db.batch();
+      
+      let count = 0;
+      // 200m gold in grams = 200,000,000 / 1e18 = 0.0000002
+      const resetVal = 0.0000002;
+      
+      usersSnap.forEach(doc => {
+        batch.update(doc.ref, { currency: resetVal });
+        count++;
+      });
+      
+      await batch.commit();
+      return message.reply(`🌅 **Season Reset Initiated!**\n✅ Successfully reset the currency of **${count}** players to **0.0000002g** (200 Miliar gold equivalent) of Gold Ingot.`);
+    } catch (err) {
+      console.error('[Command Season Error]', err);
+      return message.reply('❌ Failed to run season reset.');
+    }
+  }
+
+  // COMMAND: ADMIN ABUSE ('adminabuse [on/off])
+  if (command === 'adminabuse') {
+    try {
+      if (userId !== '661135501226672129') {
+        return message.reply('❌ You do not have permission to use this command!');
+      }
+
+      if (args.length < 1) {
+        return message.reply(`🔧 **Admin Abuse Usage:**\n• \`${effectivePrefix}adminabuse [on/off]\``);
+      }
+
+      const option = args[0].toLowerCase();
+      let isAbuse = false;
+      if (option === 'on' || option === 'true') {
+        isAbuse = true;
+      } else if (option === 'off' || option === 'false') {
+        isAbuse = false;
+      } else {
+        return message.reply('❌ Invalid option. Use `on` or `off`.');
+      }
+
+      const sysConfig = await firebase.getSystemConfig();
+      sysConfig.adminabuse = isAbuse;
+      await firebase.saveSystemConfig(sysConfig);
+
+      return message.reply(`🔧 **Admin Abuse Mode** has been turned **${isAbuse ? 'ON' : 'OFF'}**!`);
+    } catch (err) {
+      console.error('[Command AdminAbuse Error]', err);
+      return message.reply('❌ Failed to change admin abuse configuration.');
+    }
+  }
+
+  // COMMAND: TAX ('tax [0-100])
+  if (command === 'tax') {
+    try {
+      if (userId !== '661135501226672129') {
+        return message.reply('❌ You do not have permission to use this command!');
+      }
+
+      if (args.length < 1) {
+        return message.reply(`📈 **Tax Usage:**\n• \`${effectivePrefix}tax [0-100]\``);
+      }
+
+      const taxVal = parseInt(args[0], 10);
+      if (isNaN(taxVal) || taxVal < 0 || taxVal > 100) {
+        return message.reply('❌ Please enter a valid tax percentage between **0** and **100**.');
+      }
+
+      const sysConfig = await firebase.getSystemConfig();
+      sysConfig.tax = taxVal;
+      await firebase.saveSystemConfig(sysConfig);
+
+      return message.reply(`📈 **Tax Rate** has been updated to **${taxVal}%**!`);
+    } catch (err) {
+      console.error('[Command Tax Error]', err);
+      return message.reply('❌ Failed to change tax configuration.');
     }
   }
 
@@ -5115,7 +5234,7 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
   if (command === 'cf' || command === 'coinflip') {
     try {
       if (args.length < 2) {
-        return message.reply(`🪙 **Coinflip Command Usage:**\n• \`${effectivePrefix}cf [bet_amount] [heads/tails]\` (Max bet: 5.000, 60% win chance)\n*Example:* \`${effectivePrefix}cf 1000 heads\``);
+        return message.reply(`🪙 **Coinflip Command Usage:**\n• \`${effectivePrefix}cf [bet_amount] [heads/tails]\` (Max bet: 0.000000000000005g / 5.000 Gold equivalent, 60% win chance)\n*Example:* \`${effectivePrefix}cf 0.000000000000005g heads\``);
       }
 
       // Check cooldown
@@ -5136,8 +5255,8 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
         return message.reply(`❌ Please enter a valid positive bet amount.`);
       }
 
-      if (betAmount > 5000) {
-        return message.reply(`❌ Maximum bet amount is **5.000 Gold**! For higher stakes, use \`${effectivePrefix}cfh\` (standard win chance).`);
+      if (betAmount > 0.000000000000005) {
+        return message.reply(`❌ Maximum bet amount is **0.000000000000005g** Gold Ingot (5.000 Gold equivalent)! For higher stakes, use \`${effectivePrefix}cfh\` (standard win chance).`);
       }
 
       // Parse Side Choice
@@ -5155,7 +5274,7 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
       const profile = await firebase.getUser(userId);
       const userGold = profile.currency || 0;
       if (userGold < betAmount) {
-        return message.reply(`❌ You do not have enough Gold! You only have **${userGold.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".")}** gold.`);
+        return message.reply(`❌ You do not have enough Gold Ingot! You only have **${formatGoldIngot(userGold)}**.`);
       }
 
       // All validations passed! Set cooldown
@@ -5174,43 +5293,55 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
         const embed = new EmbedBuilder()
           .setTitle(`🪙 Coinflip: Heads or Tails?`)
           .setColor('#4CAF50')
-          .setDescription(`You bet **${betAmount.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".")}** gold on **${chosenSide}**!\n\nThe coin spins in the air and lands on...\n✨ **${landedSide}**!`)
+          .setDescription(`You bet **${formatGoldIngot(betAmount)}** Gold Ingot on **${chosenSide}**!\n\nThe coin spins in the air and lands on...\n✨ **${landedSide}**!`)
           .addFields(
-            { name: 'Result', value: `🎉 **YOU WON!** (+${betAmount.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".")} Gold)`, inline: false },
-            { name: 'Your Gold Balance', value: `🪙 **${profile.currency.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".")}**`, inline: false }
+            { name: 'Result', value: `🎉 **YOU WON!** (+${formatGoldIngot(betAmount)} Gold Ingot)`, inline: false },
+            { name: 'Your Gold Ingot Balance', value: `🪙 **${formatGoldIngot(profile.currency)}**`, inline: false }
           )
           .setTimestamp();
 
         return message.reply({ embeds: [embed] });
       } else {
-        profile.currency -= betAmount;
+        const sysConfig = await firebase.getSystemConfig();
+        const taxPercent = sysConfig.tax !== undefined ? sysConfig.tax : 0;
+        const adminabuse = sysConfig.adminabuse || false;
+
+        let cashback = 0;
+        let taxAmt = betAmount;
+
+        if (adminabuse) {
+          cashback = betAmount * (1 - taxPercent / 100);
+          taxAmt = betAmount * (taxPercent / 100);
+        }
+
+        profile.currency = (profile.currency || 0) - (betAmount - cashback);
         await firebase.saveUser(userId, profile);
 
         // Redirect lost bet to creator
-        if (userId !== creatorId) {
+        if (taxAmt > 0 && userId !== creatorId) {
           const creatorProfile = await firebase.getUser(creatorId);
-          creatorProfile.currency = (creatorProfile.currency || 0) + betAmount;
+          creatorProfile.currency = (creatorProfile.currency || 0) + taxAmt;
           await firebase.saveUser(creatorId, creatorProfile);
         }
 
         const embed = new EmbedBuilder()
           .setTitle(`🪙 Coinflip: Heads or Tails?`)
           .setColor('#F44336')
-          .setDescription(`You bet **${betAmount.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".")}** gold on **${chosenSide}**!\n\nThe coin spins in the air and lands on...\n💨 **${landedSide}**`)
+          .setDescription(`You bet **${formatGoldIngot(betAmount)}** Gold Ingot on **${chosenSide}**!\n\nThe coin spins in the air and lands on...\n💨 **${landedSide}**`)
           .addFields(
-            { name: 'Result', value: `💀 **YOU LOST!** (-${betAmount.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".")} Gold)`, inline: false },
-            { name: 'Your Gold Balance', value: `🪙 **${profile.currency.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".")}**`, inline: false }
+            { name: 'Result', value: `💀 **YOU LOST!** (-${formatGoldIngot(betAmount - cashback)} Gold Ingot${cashback > 0 ? ` | Cashback: ${formatGoldIngot(cashback)}` : ''})`, inline: false },
+            { name: 'Your Gold Ingot Balance', value: `🪙 **${formatGoldIngot(profile.currency)}**`, inline: false }
           )
           .setTimestamp();
 
         return message.reply({
-          content: `💀 <@${userId}> kalah!\n\`\`\`cgive <@${userId}> ${betAmount}\`\`\``,
+          content: `💀 <@${userId}> kalah!\n\`\`\`cgive <@${userId}> ${formatIngotNumber(betAmount)}g\`\`\``,
           embeds: [embed]
         });
       }
 
     } catch (err) {
-      console.error('[Coinflip Command Error]', err);
+      console.error('[Coinflip Error]', err);
       return message.reply('❌ Failed to process coinflip.');
     }
   }
@@ -5219,7 +5350,7 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
   if (command === 'cfh' || command === 'coinfliphigh') {
     try {
       if (args.length < 2) {
-        return message.reply(`🪙 **High-Stakes Coinflip Command Usage:**\n• \`${effectivePrefix}cfh [bet_amount] [heads/tails]\` (Max bet: 2.500.000, 48% win chance)\n*Example:* \`${effectivePrefix}cfh 100000 heads\``);
+        return message.reply(`🪙 **High-Stakes Coinflip Command Usage:**\n• \`${effectivePrefix}cfh [bet_amount] [heads/tails]\` (Max bet: 0.0000000000025g / 2.500.000 Gold equivalent, 48% win chance)\n*Example:* \`${effectivePrefix}cfh 0.0000000000025g heads\``);
       }
 
       // Check cooldown
@@ -5240,8 +5371,8 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
         return message.reply(`❌ Please enter a valid positive bet amount.`);
       }
 
-      if (betAmount > 2500000) {
-        return message.reply(`❌ Maximum bet amount is **2.500.000 Gold**!`);
+      if (betAmount > 0.0000000000025) {
+        return message.reply(`❌ Maximum bet amount is **0.0000000000025g** Gold Ingot (2.500.000 Gold equivalent)!`);
       }
 
       // Parse Side Choice
@@ -5259,7 +5390,7 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
       const profile = await firebase.getUser(userId);
       const userGold = profile.currency || 0;
       if (userGold < betAmount) {
-        return message.reply(`❌ You do not have enough Gold! You only have **${userGold.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".")}** gold.`);
+        return message.reply(`❌ You do not have enough Gold Ingot! You only have **${formatGoldIngot(userGold)}**.`);
       }
 
       // All validations passed! Set cooldown
@@ -5278,43 +5409,55 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
         const embed = new EmbedBuilder()
           .setTitle(`🪙 High-Stakes Coinflip: Heads or Tails?`)
           .setColor('#4CAF50')
-          .setDescription(`You bet **${betAmount.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".")}** gold on **${chosenSide}**!\n\nThe coin spins in the air and lands on...\n✨ **${landedSide}**!`)
+          .setDescription(`You bet **${formatGoldIngot(betAmount)}** Gold Ingot on **${chosenSide}**!\n\nThe coin spins in the air and lands on...\n✨ **${landedSide}**!`)
           .addFields(
-            { name: 'Result', value: `🎉 **YOU WON!** (+${betAmount.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".")} Gold)`, inline: false },
-            { name: 'Your Gold Balance', value: `🪙 **${profile.currency.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".")}**`, inline: false }
+            { name: 'Result', value: `🎉 **YOU WON!** (+${formatGoldIngot(betAmount)} Gold Ingot)`, inline: false },
+            { name: 'Your Gold Ingot Balance', value: `🪙 **${formatGoldIngot(profile.currency)}**`, inline: false }
           )
           .setTimestamp();
 
         return message.reply({ embeds: [embed] });
       } else {
-        profile.currency -= betAmount;
+        const sysConfig = await firebase.getSystemConfig();
+        const taxPercent = sysConfig.tax !== undefined ? sysConfig.tax : 0;
+        const adminabuse = sysConfig.adminabuse || false;
+
+        let cashback = 0;
+        let taxAmt = betAmount;
+
+        if (adminabuse) {
+          cashback = betAmount * (1 - taxPercent / 100);
+          taxAmt = betAmount * (taxPercent / 100);
+        }
+
+        profile.currency = (profile.currency || 0) - (betAmount - cashback);
         await firebase.saveUser(userId, profile);
 
         // Redirect lost bet to creator
-        if (userId !== creatorId) {
+        if (taxAmt > 0 && userId !== creatorId) {
           const creatorProfile = await firebase.getUser(creatorId);
-          creatorProfile.currency = (creatorProfile.currency || 0) + betAmount;
+          creatorProfile.currency = (creatorProfile.currency || 0) + taxAmt;
           await firebase.saveUser(creatorId, creatorProfile);
         }
 
         const embed = new EmbedBuilder()
           .setTitle(`🪙 High-Stakes Coinflip: Heads or Tails?`)
           .setColor('#F44336')
-          .setDescription(`You bet **${betAmount.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".")}** gold on **${chosenSide}**!\n\nThe coin spins in the air and lands on...\n💨 **${landedSide}**`)
+          .setDescription(`You bet **${formatGoldIngot(betAmount)}** Gold Ingot on **${chosenSide}**!\n\nThe coin spins in the air and lands on...\n💨 **${landedSide}**`)
           .addFields(
-            { name: 'Result', value: `💀 **YOU LOST!** (-${betAmount.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".")} Gold)`, inline: false },
-            { name: 'Your Gold Balance', value: `🪙 **${profile.currency.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".")}**`, inline: false }
+            { name: 'Result', value: `💀 **YOU LOST!** (-${formatGoldIngot(betAmount - cashback)} Gold Ingot${cashback > 0 ? ` | Cashback: ${formatGoldIngot(cashback)}` : ''})`, inline: false },
+            { name: 'Your Gold Ingot Balance', value: `🪙 **${formatGoldIngot(profile.currency)}**`, inline: false }
           )
           .setTimestamp();
 
         return message.reply({
-          content: `💀 <@${userId}> kalah!\n\`\`\`cgive <@${userId}> ${betAmount}\`\`\``,
+          content: `💀 <@${userId}> kalah!\n\`\`\`cgive <@${userId}> ${formatIngotNumber(betAmount)}g\`\`\``,
           embeds: [embed]
         });
       }
 
     } catch (err) {
-      console.error('[Coinflip High Command Error]', err);
+      console.error('[Coinflip High Error]', err);
       return message.reply('❌ Failed to process high-stakes coinflip.');
     }
   }
@@ -5323,7 +5466,7 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
   if (command === 'slots' || command === 'slot') {
     try {
       if (args.length < 1) {
-        return message.reply(`🎰 **Slots Command Usage:**\n• \`${effectivePrefix}slots [bet_amount]\` (Max bet: 5.000, 60% win chance)\n*Example:* \`${effectivePrefix}slots 1000\``);
+        return message.reply(`🎰 **Slots Command Usage:**\n• \`${effectivePrefix}slots [bet_amount]\` (Max bet: 0.000000000000005g / 5.000 Gold equivalent, 60% win chance)\n*Example:* \`${effectivePrefix}slots 0.000000000000005g\``);
       }
 
       // Check cooldown
@@ -5344,15 +5487,15 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
         return message.reply(`❌ Please enter a valid positive bet amount.`);
       }
 
-      if (betAmount > 5000) {
-        return message.reply(`❌ Maximum bet amount is **5.000 Gold**! For higher stakes, use \`${effectivePrefix}sloth\` (low win chance).`);
+      if (betAmount > 0.000000000000005) {
+        return message.reply(`❌ Maximum bet amount is **0.000000000000005g** Gold Ingot (5.000 Gold equivalent)! For higher stakes, use \`${effectivePrefix}sloth\` (low win chance).`);
       }
 
       // Fetch profile
       const profile = await firebase.getUser(userId);
       const userGold = profile.currency || 0;
       if (userGold < betAmount) {
-        return message.reply(`❌ You do not have enough Gold! You only have **${userGold.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".")}** gold.`);
+        return message.reply(`❌ You do not have enough Gold Ingot! You only have **${formatGoldIngot(userGold)}**.`);
       }
 
       // All validations passed! Set cooldown
@@ -5421,50 +5564,62 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
         `\`[  ${bottomRow[0]}  |  ${bottomRow[1]}  |  ${bottomRow[2]}  ]\``;
 
       if (isWin) {
-        const netProfit = Math.floor(betAmount * (multiplier - 1));
+        const netProfit = betAmount * (multiplier - 1);
         profile.currency += netProfit;
         await firebase.saveUser(userId, profile);
 
         const embed = new EmbedBuilder()
           .setTitle(`🎰 Slot Machine`)
           .setColor('#E91E63')
-          .setDescription(`You pulled the lever with a bet of **${betAmount.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".")}** gold!\n\n${gridText}`)
+          .setDescription(`You pulled the lever with a bet of **${formatGoldIngot(betAmount)}** Gold Ingot!\n\n${gridText}`)
           .addFields(
-            { name: 'Result', value: `🎉 **MATCH!** You got 3x ${winningSymbol}!\nWon **${netProfit.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".")}** gold! (${multiplier}x payout)`, inline: false },
-            { name: 'Your Gold Balance', value: `🪙 **${profile.currency.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".")}**`, inline: false }
+            { name: 'Result', value: `🎉 **MATCH!** You got 3x ${winningSymbol}!\nWon **${formatGoldIngot(netProfit)}** Gold Ingot! (${multiplier}x payout)`, inline: false },
+            { name: 'Your Gold Ingot Balance', value: `🪙 **${formatGoldIngot(profile.currency)}**`, inline: false }
           )
           .setTimestamp();
 
         return message.reply({ embeds: [embed] });
       } else {
-        profile.currency -= betAmount;
+        const sysConfig = await firebase.getSystemConfig();
+        const taxPercent = sysConfig.tax !== undefined ? sysConfig.tax : 0;
+        const adminabuse = sysConfig.adminabuse || false;
+
+        let cashback = 0;
+        let taxAmt = betAmount;
+
+        if (adminabuse) {
+          cashback = betAmount * (1 - taxPercent / 100);
+          taxAmt = betAmount * (taxPercent / 100);
+        }
+
+        profile.currency = (profile.currency || 0) - (betAmount - cashback);
         await firebase.saveUser(userId, profile);
 
         // Redirect lost bet to creator
-        if (userId !== creatorId) {
+        if (taxAmt > 0 && userId !== creatorId) {
           const creatorProfile = await firebase.getUser(creatorId);
-          creatorProfile.currency = (creatorProfile.currency || 0) + betAmount;
+          creatorProfile.currency = (creatorProfile.currency || 0) + taxAmt;
           await firebase.saveUser(creatorId, creatorProfile);
         }
 
         const embed = new EmbedBuilder()
           .setTitle(`🎰 Slot Machine`)
           .setColor('#9E9E9E')
-          .setDescription(`You pulled the lever with a bet of **${betAmount.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".")}** gold!\n\n${gridText}`)
+          .setDescription(`You pulled the lever with a bet of **${formatGoldIngot(betAmount)}** Gold Ingot!\n\n${gridText}`)
           .addFields(
-            { name: 'Result', value: `💀 **NO MATCH!** Better luck next time!\nLost **${betAmount.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".")}** gold.`, inline: false },
-            { name: 'Your Gold Balance', value: `🪙 **${profile.currency.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".")}**`, inline: false }
+            { name: 'Result', value: `💀 **NO MATCH!** Better luck next time!\nLost **${formatGoldIngot(betAmount - cashback)}** Gold Ingot.${cashback > 0 ? ` (Cashback: ${formatGoldIngot(cashback)})` : ''}`, inline: false },
+            { name: 'Your Gold Ingot Balance', value: `🪙 **${formatGoldIngot(profile.currency)}**`, inline: false }
           )
           .setTimestamp();
 
         return message.reply({
-          content: `💀 <@${userId}> kalah!\n\`\`\`cgive <@${userId}> ${betAmount}\`\`\``,
+          content: `💀 <@${userId}> kalah!\n\`\`\`cgive <@${userId}> ${formatIngotNumber(betAmount)}g\`\`\``,
           embeds: [embed]
         });
       }
 
     } catch (err) {
-      console.error('[Slots Command Error]', err);
+      console.error('[Slots Error]', err);
       return message.reply('❌ Failed to process slots.');
     }
   }
@@ -5473,7 +5628,7 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
   if (command === 'sloth' || command === 'slothigh') {
     try {
       if (args.length < 1) {
-        return message.reply(`🎰 **High-Stakes Slot Machine Command Usage:**\n• \`${effectivePrefix}sloth [bet_amount/all]\` (Max bet: 50.000.000, 30% win chance)\n*Example:* \`${effectivePrefix}sloth 100000\` or \`${effectivePrefix}sloth all\``);
+        return message.reply(`🎰 **High-Stakes Slot Machine Command Usage:**\n• \`${effectivePrefix}sloth [bet_amount/all]\` (Max bet: 0.00000000005g / 50.000.000 Gold equivalent, 30% win chance)\n*Example:* \`${effectivePrefix}sloth 0.00000000005g\` or \`${effectivePrefix}sloth all\``);
       }
 
       // Check cooldown
@@ -5500,18 +5655,18 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
         isAllIn = true;
         betAmount = userGold;
         if (betAmount <= 0) {
-          return message.reply(`❌ You do not have any Gold to bet!`);
+          return message.reply(`❌ You do not have any Gold Ingot to bet!`);
         }
       } else {
         betAmount = parseGoldAmount(betInput);
         if (isNaN(betAmount) || betAmount <= 0) {
           return message.reply(`❌ Please enter a valid positive bet amount or \`all\`.`);
         }
-        if (betAmount > 50000000) {
-          return message.reply(`❌ Maximum bet amount is **50.000.000 Gold**!`);
+        if (betAmount > 0.00000000005) {
+          return message.reply(`❌ Maximum bet amount is **0.00000000005g** Gold Ingot (50.000.000 Gold equivalent)!`);
         }
         if (userGold < betAmount) {
-          return message.reply(`❌ You do not have enough Gold! You only have **${userGold.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".")}** gold.`);
+          return message.reply(`❌ You do not have enough Gold Ingot! You only have **${formatGoldIngot(userGold)}**.`);
         }
       }
 
@@ -5581,53 +5736,65 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
         `\`[  ${bottomRow[0]}  |  ${bottomRow[1]}  |  ${bottomRow[2]}  ]\``;
 
       if (isWin) {
-        const netProfit = Math.floor(betAmount * (multiplier - 1));
+        const netProfit = betAmount * (multiplier - 1);
         profile.currency += netProfit;
         await firebase.saveUser(userId, profile);
 
         const embed = new EmbedBuilder()
           .setTitle(`🎰 High-Stakes Slot Machine`)
           .setColor('#E91E63')
-          .setDescription(`You pulled the lever with a bet of **${betAmount.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".")}** gold!\n\n${gridText}`)
+          .setDescription(`You pulled the lever with a bet of **${formatGoldIngot(betAmount)}** Gold Ingot!\n\n${gridText}`)
           .addFields(
-            { name: 'Result', value: `🎉 **MATCH!** You got 3x ${winningSymbol}!\nWon **${netProfit.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".")}** gold! (${multiplier}x payout)`, inline: false },
-            { name: 'Your Gold Balance', value: `🪙 **${profile.currency.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".")}**`, inline: false }
+            { name: 'Result', value: `🎉 **MATCH!** You got 3x ${winningSymbol}!\nWon **${formatGoldIngot(netProfit)}** Gold Ingot! (${multiplier}x payout)`, inline: false },
+            { name: 'Your Gold Ingot Balance', value: `🪙 **${formatGoldIngot(profile.currency)}**`, inline: false }
           )
           .setTimestamp();
 
         return message.reply({ embeds: [embed] });
       } else {
-        profile.currency -= betAmount;
+        const sysConfig = await firebase.getSystemConfig();
+        const taxPercent = sysConfig.tax !== undefined ? sysConfig.tax : 0;
+        const adminabuse = sysConfig.adminabuse || false;
+
+        let cashback = 0;
+        let taxAmt = betAmount;
+
+        if (adminabuse) {
+          cashback = betAmount * (1 - taxPercent / 100);
+          taxAmt = betAmount * (taxPercent / 100);
+        }
+
+        profile.currency = (profile.currency || 0) - (betAmount - cashback);
         if (isAllIn) {
           profile.giftBlockedUntil = Date.now() + 3600000; // 1 hour penalty
         }
         await firebase.saveUser(userId, profile);
 
         // Redirect lost bet to creator
-        if (userId !== creatorId) {
+        if (taxAmt > 0 && userId !== creatorId) {
           const creatorProfile = await firebase.getUser(creatorId);
-          creatorProfile.currency = (creatorProfile.currency || 0) + betAmount;
+          creatorProfile.currency = (creatorProfile.currency || 0) + taxAmt;
           await firebase.saveUser(creatorId, creatorProfile);
         }
 
         const embed = new EmbedBuilder()
           .setTitle(`🎰 High-Stakes Slot Machine`)
           .setColor('#9E9E9E')
-          .setDescription(`You pulled the lever with a bet of **${betAmount.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".")}** gold!\n\n${gridText}`)
+          .setDescription(`You pulled the lever with a bet of **${formatGoldIngot(betAmount)}** Gold Ingot!\n\n${gridText}`)
           .addFields(
-            { name: 'Result', value: `💀 **NO MATCH!** Better luck next time!\nLost **${betAmount.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".")}** gold.${isAllIn ? '\n⚠️ **All-In Penalty**: You are blocked from receiving gifts (\`\'give\`) for 1 hour!' : ''}`, inline: false },
-            { name: 'Your Gold Balance', value: `🪙 **${profile.currency.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".")}**`, inline: false }
+            { name: 'Result', value: `💀 **NO MATCH!** Better luck next time!\nLost **${formatGoldIngot(betAmount - cashback)}** Gold Ingot.${cashback > 0 ? ` (Cashback: ${formatGoldIngot(cashback)})` : ''}${isAllIn ? '\n⚠️ **All-In Penalty**: You are blocked from receiving gifts (\`\'give\`) for 1 hour!' : ''}`, inline: false },
+            { name: 'Your Gold Ingot Balance', value: `🪙 **${formatGoldIngot(profile.currency)}**`, inline: false }
           )
           .setTimestamp();
 
         return message.reply({
-          content: `💀 <@${userId}> kalah!\n\`\`\`cgive <@${userId}> ${betAmount}\`\`\``,
+          content: `💀 <@${userId}> kalah!\n\`\`\`cgive <@${userId}> ${formatIngotNumber(betAmount)}g\`\`\``,
           embeds: [embed]
         });
       }
 
     } catch (err) {
-      console.error('[Slots High Command Error]', err);
+      console.error('[Slots High Error]', err);
       return message.reply('❌ Failed to process high-stakes slots.');
     }
   }
@@ -5862,178 +6029,195 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
 }
 
 client.on('messageCreate', async (msg) => {
-  if (msg.author.bot) return;
+  try {
+    if (msg.author.bot) return;
 
-  const userId = msg.author.id;
-  const guildId = msg.guild?.id;
+    const userId = msg.author.id;
+    const guildId = msg.guild?.id;
 
-  // 1. Resolve User-Specific Prefix
-  let userPrefix = userPrefixCache.get(userId);
-  if (userPrefix === undefined) {
-    try {
-      userPrefix = await firebase.getUserPrefix(userId);
-      userPrefixCache.set(userId, userPrefix);
-    } catch (err) {
-      console.error(`[Prefix Error] Failed to fetch user prefix for ${userId}:`, err);
-      userPrefix = null;
-    }
-  }
-
-  // 2. Resolve Server-Wide Prefix
-  let serverPrefix = null;
-  if (guildId) {
-    serverPrefix = serverPrefixCache.get(guildId);
-    if (serverPrefix === undefined) {
+    // 1. Resolve User-Specific Prefix
+    let userPrefix = userPrefixCache.get(userId);
+    if (userPrefix === undefined) {
       try {
-        serverPrefix = await firebase.getServerPrefix(guildId);
-        serverPrefixCache.set(guildId, serverPrefix);
+        userPrefix = await firebase.getUserPrefix(userId);
+        userPrefixCache.set(userId, userPrefix);
       } catch (err) {
-        console.error(`[Prefix Error] Failed to fetch server prefix for ${guildId}:`, err);
-        serverPrefix = null;
+        console.error(`[Prefix Error] Failed to fetch user prefix for ${userId}:`, err);
+        userPrefix = null;
       }
     }
+
+    // 2. Resolve Server-Wide Prefix
+    let serverPrefix = null;
+    if (guildId) {
+      serverPrefix = serverPrefixCache.get(guildId);
+      if (serverPrefix === undefined) {
+        try {
+          serverPrefix = await firebase.getServerPrefix(guildId);
+          serverPrefixCache.set(guildId, serverPrefix);
+        } catch (err) {
+          console.error(`[Prefix Error] Failed to fetch server prefix for ${guildId}:`, err);
+          serverPrefix = null;
+        }
+      }
+    }
+
+    // 3. Determine Effective Prefix
+    const effectivePrefix = userPrefix !== null ? userPrefix : (serverPrefix !== null ? serverPrefix : PREFIX);
+
+    // 4. Verify message starts with effective prefix
+    if (!msg.content.startsWith(effectivePrefix)) return;
+
+    const args = msg.content.slice(effectivePrefix.length).trim().split(/ +/);
+    const command = args.shift().toLowerCase();
+
+    const ctx = new CommandContext(msg, false);
+    await executeRPGCommand(command, args, ctx, effectivePrefix);
+  } catch (err) {
+    console.error('[messageCreate Event Error]', err);
   }
-
-  // 3. Determine Effective Prefix
-  const effectivePrefix = userPrefix !== null ? userPrefix : (serverPrefix !== null ? serverPrefix : PREFIX);
-
-  // 4. Verify message starts with effective prefix
-  if (!msg.content.startsWith(effectivePrefix)) return;
-
-  const args = msg.content.slice(effectivePrefix.length).trim().split(/ +/);
-  const command = args.shift().toLowerCase();
-
-  const ctx = new CommandContext(msg, false);
-  await executeRPGCommand(command, args, ctx, effectivePrefix);
 });
 
 client.on('interactionCreate', async (interaction) => {
-  if (!interaction.isChatInputCommand()) return;
+  try {
+    if (!interaction.isChatInputCommand()) return;
 
-  if (!firebase.isInitialized()) {
-    return interaction.reply({ content: '❌ The bot database connection is currently unconfigured.', ephemeral: true });
-  }
-
-  const { commandName } = interaction;
-  const userId = interaction.user.id;
-
-  // Unify context
-  const ctx = new CommandContext(interaction, true);
-
-  // Extract arguments to match the array structure expected by the prefix handler
-  const args = [];
-
-  // Parse arguments based on commandName
-  if (commandName === 'cf' || commandName === 'cfh') {
-    const bet = interaction.options.getString('bet');
-    const side = interaction.options.getString('side');
-    args.push(bet, side);
-  } else if (commandName === 'slots') {
-    const bet = interaction.options.getString('bet');
-    args.push(bet);
-  } else if (commandName === 'sloth') {
-    const bet = interaction.options.getString('bet');
-    args.push(bet.trim());
-  } else if (commandName === 'monster' || commandName === 'weapon') {
-    const name = interaction.options.getString('name');
-    if (name) {
-      args.push(...name.trim().split(/ +/));
+    if (!firebase.isInitialized()) {
+      return interaction.reply({ content: '❌ The bot database connection is currently unconfigured.', ephemeral: true });
     }
-  } else if (commandName === 'team') {
-    const subcommand = interaction.options.getSubcommand();
-    args.push(subcommand);
-    if (subcommand === 'set' || subcommand === 'clear') {
-      const number = interaction.options.getInteger('number');
-      args.push(number.toString());
-    } else if (subcommand === 'rename') {
-      const number = interaction.options.getInteger('number');
+
+    const { commandName } = interaction;
+    const userId = interaction.user.id;
+
+    // Unify context
+    const ctx = new CommandContext(interaction, true);
+
+    // Extract arguments to match the array structure expected by the prefix handler
+    const args = [];
+
+    // Parse arguments based on commandName
+    if (commandName === 'cf' || commandName === 'cfh') {
+      const bet = interaction.options.getString('bet');
+      const side = interaction.options.getString('side');
+      args.push(bet, side);
+    } else if (commandName === 'slots') {
+      const bet = interaction.options.getString('bet');
+      args.push(bet);
+    } else if (commandName === 'sloth') {
+      const bet = interaction.options.getString('bet');
+      args.push(bet.trim());
+    } else if (commandName === 'monster' || commandName === 'weapon') {
       const name = interaction.options.getString('name');
-      if (number !== null && number !== undefined) {
+      if (name) {
+        args.push(...name.trim().split(/ +/));
+      }
+    } else if (commandName === 'team') {
+      const subcommand = interaction.options.getSubcommand();
+      args.push(subcommand);
+      if (subcommand === 'set' || subcommand === 'clear') {
+        const number = interaction.options.getInteger('number');
         args.push(number.toString());
+      } else if (subcommand === 'rename') {
+        const number = interaction.options.getInteger('number');
+        const name = interaction.options.getString('name');
+        if (number !== null && number !== undefined) {
+          args.push(number.toString());
+        }
+        args.push(...name.trim().split(/ +/));
       }
-      args.push(...name.trim().split(/ +/));
+    } else if (commandName === 'use') {
+      const slot = interaction.options.getString('slot');
+      const item = interaction.options.getString('item');
+      args.push(slot);
+      args.push(...item.trim().split(/ +/));
+    } else if (commandName === 'threat' || commandName === 'by') {
+      const subcommand = interaction.options.getSubcommand();
+      args.push(subcommand);
+    } else if (commandName === 'reroll') {
+      args.push('e'); // In prefix commands, reroll is 'r e [weapon]'
+      const weapon = interaction.options.getString('weapon');
+      args.push(...weapon.trim().split(/ +/));
+    } else if (commandName === 'settings') {
+      const loot = interaction.options.getString('loot');
+      const hunt = interaction.options.getString('hunt');
+      if (loot) {
+        args.push('loot', loot);
+      } else if (hunt) {
+        args.push('hunt', hunt);
+      }
+    } else if (commandName === 'dex') {
+      const category = interaction.options.getString('category');
+      if (category) {
+        args.push(category);
+      }
+    } else if (commandName === 'leaderboard') {
+      const category = interaction.options.getString('category');
+      if (category) {
+        args.push(category);
+      }
+    } else if (commandName === 'userprefix' || commandName === 'serverprefix') {
+      const prefix = interaction.options.getString('prefix');
+      args.push(prefix);
+    } else if (commandName === 'give') {
+      const user = interaction.options.getUser('user');
+      const amount = interaction.options.getString('amount');
+      args.push(user.id, amount);
+    } else if (commandName === 'bet') {
+      const user = interaction.options.getUser('player');
+      const amount = interaction.options.getString('amount');
+      args.push(user.id, amount);
+    } else if (commandName === 'reset' || commandName === 'remove') {
+      const amount = interaction.options.getString('amount');
+      const user = interaction.options.getUser('user');
+      args.push(amount);
+      if (user) {
+        args.push(user.id);
+      }
+    } else if (commandName === 'gold') {
+      const user = interaction.options.getUser('user');
+      if (user) {
+        args.push(user.id);
+      }
     }
-  } else if (commandName === 'use') {
-    const slot = interaction.options.getString('slot');
-    const item = interaction.options.getString('item');
-    args.push(slot);
-    args.push(...item.trim().split(/ +/));
-  } else if (commandName === 'threat' || commandName === 'by') {
-    const subcommand = interaction.options.getSubcommand();
-    args.push(subcommand);
-  } else if (commandName === 'reroll') {
-    args.push('e'); // In prefix commands, reroll is 'r e [weapon]'
-    const weapon = interaction.options.getString('weapon');
-    args.push(...weapon.trim().split(/ +/));
-  } else if (commandName === 'settings') {
-    const loot = interaction.options.getString('loot');
-    const hunt = interaction.options.getString('hunt');
-    if (loot) {
-      args.push('loot', loot);
-    } else if (hunt) {
-      args.push('hunt', hunt);
-    }
-  } else if (commandName === 'dex') {
-    const category = interaction.options.getString('category');
-    if (category) {
-      args.push(category);
-    }
-  } else if (commandName === 'leaderboard') {
-    const category = interaction.options.getString('category');
-    if (category) {
-      args.push(category);
-    }
-  } else if (commandName === 'userprefix' || commandName === 'serverprefix') {
-    const prefix = interaction.options.getString('prefix');
-    args.push(prefix);
-  } else if (commandName === 'give') {
-    const user = interaction.options.getUser('user');
-    const amount = interaction.options.getString('amount');
-    args.push(user.id, amount);
-  } else if (commandName === 'bet') {
-    const user = interaction.options.getUser('player');
-    const amount = interaction.options.getString('amount');
-    args.push(user.id, amount);
-  } else if (commandName === 'reset' || commandName === 'remove') {
-    const amount = interaction.options.getString('amount');
-    const user = interaction.options.getUser('user');
-    args.push(amount);
-    if (user) {
-      args.push(user.id);
-    }
-  } else if (commandName === 'gold') {
-    const user = interaction.options.getUser('user');
-    if (user) {
-      args.push(user.id);
-    }
-  }
 
-  // Resolve prefix for help command / display
-  let userPrefix = userPrefixCache.get(userId);
-  if (userPrefix === undefined) {
-    try {
-      userPrefix = await firebase.getUserPrefix(userId);
-      userPrefixCache.set(userId, userPrefix);
-    } catch (err) {
-      userPrefix = null;
-    }
-  }
-  let serverPrefix = null;
-  if (interaction.guildId) {
-    serverPrefix = serverPrefixCache.get(interaction.guildId);
-    if (serverPrefix === undefined) {
+    // Resolve prefix for help command / display
+    let userPrefix = userPrefixCache.get(userId);
+    if (userPrefix === undefined) {
       try {
-        serverPrefix = await firebase.getServerPrefix(interaction.guildId);
-        serverPrefixCache.set(interaction.guildId, serverPrefix);
+        userPrefix = await firebase.getUserPrefix(userId);
+        userPrefixCache.set(userId, userPrefix);
       } catch (err) {
-        serverPrefix = null;
+        userPrefix = null;
       }
     }
-  }
-  const effectivePrefix = userPrefix !== null ? userPrefix : (serverPrefix !== null ? serverPrefix : PREFIX);
+    let serverPrefix = null;
+    if (interaction.guildId) {
+      serverPrefix = serverPrefixCache.get(interaction.guildId);
+      if (serverPrefix === undefined) {
+        try {
+          serverPrefix = await firebase.getServerPrefix(interaction.guildId);
+          serverPrefixCache.set(interaction.guildId, serverPrefix);
+        } catch (err) {
+          serverPrefix = null;
+        }
+      }
+    }
+    const effectivePrefix = userPrefix !== null ? userPrefix : (serverPrefix !== null ? serverPrefix : PREFIX);
 
-  // Execute unified command runner
-  await executeRPGCommand(commandName, args, ctx, effectivePrefix);
+    // Execute unified command runner
+    await executeRPGCommand(commandName, args, ctx, effectivePrefix);
+  } catch (err) {
+    console.error('[interactionCreate Event Error]', err);
+    try {
+      if (!interaction.replied && !interaction.deferred) {
+        await interaction.reply({ content: '❌ An error occurred while executing this command.', ephemeral: true });
+      } else {
+        await interaction.followUp({ content: '❌ An error occurred while executing this command.', ephemeral: true });
+      }
+    } catch (replyErr) {
+      console.error('[interactionCreate Reply Error]', replyErr);
+    }
+  }
 });
 
 // Team view display helper
@@ -6114,6 +6298,19 @@ setInterval(() => {
 }, KEEP_ALIVE_INTERVAL);
 
 console.log(`[Keep-Alive] Cron initialized — pinging every 4 minutes.`);
+
+// ─── Global Error Handling to prevent crashes ───
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[Unhandled Rejection] at:', promise, 'reason:', reason);
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('[Uncaught Exception] occurred:', err);
+});
+
+client.on('error', (err) => {
+  console.error('[Discord Client Error]', err);
+});
 
 // Bot logon
 const token = process.env.DISCORD_TOKEN;

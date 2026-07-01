@@ -43,7 +43,8 @@ const DEFAULT_PROFILE = (userId) => ({
   userId: userId,
   level: 1,
   xp: 0,
-  currency: 100, // start with some gold
+  currency: 1e-16, // start with some gold (100 Gold equivalent in grams)
+  currencyMigrated: true,
   huntMarks: 0,
   elementalStones: 0,
   dex: {
@@ -104,6 +105,13 @@ async function getUser(userId) {
       data[key] = defaults[key];
       updated = true;
     }
+  }
+
+  // Migrate old currency from raw Gold to Ingot grams
+  if (data.currencyMigrated === undefined || !data.currencyMigrated) {
+    data.currency = (data.currency || 0) / 1000000000000000000;
+    data.currencyMigrated = true;
+    updated = true;
   }
 
   // Migrate monster levels from forge to enchanted
@@ -170,11 +178,11 @@ async function getUser(userId) {
     }
   }
 
-  // Enforce gold limit of 3.000.000.000.000.000.000 (3e18)
-  // Also migrate existing profiles near 2.799.999.999.999.671.000 to the max limit of 3e18
+  // Enforce gold limit of 3.0 grams of Gold Ingot (3e18 Gold)
+  // Also migrate existing profiles near 2.799999999999671 grams to the max limit of 3.0 grams
   if (data.currency !== undefined) {
-    const limit = 3000000000000000000;
-    if (data.currency >= 2799999999999000000) {
+    const limit = 3.0;
+    if (data.currency >= 2.799) {
       data.currency = limit;
       updated = true;
     } else if (data.currency > limit) {
@@ -194,9 +202,9 @@ async function saveUser(userId, profile) {
   if (!db) {
     throw new Error('Database is not initialized.');
   }
-  // Enforce gold limit of 3.000.000.000.000.000.000 (3e18)
+  // Enforce gold limit of 3.0 grams of Gold Ingot (3e18 Gold)
   if (profile && profile.currency !== undefined) {
-    const limit = 3000000000000000000;
+    const limit = 3.0;
     if (profile.currency > limit) {
       profile.currency = limit;
     }
@@ -232,6 +240,24 @@ async function saveServerPrefix(guildId, prefix) {
   await docRef.set({ prefix });
 }
 
+async function getSystemConfig() {
+  if (!db) return { adminabuse: false, tax: 0 };
+  const docRef = db.collection('rpg_system').doc('config');
+  const doc = await docRef.get();
+  if (!doc.exists) {
+    const defaultConfig = { adminabuse: false, tax: 0 };
+    await docRef.set(defaultConfig);
+    return defaultConfig;
+  }
+  return doc.data();
+}
+
+async function saveSystemConfig(config) {
+  if (!db) return;
+  const docRef = db.collection('rpg_system').doc('config');
+  await docRef.set(config);
+}
+
 module.exports = {
   db,
   getUser,
@@ -239,6 +265,8 @@ module.exports = {
   getUserPrefix,
   getServerPrefix,
   saveServerPrefix,
+  getSystemConfig,
+  saveSystemConfig,
   isInitialized: () => !!db
 };
 
