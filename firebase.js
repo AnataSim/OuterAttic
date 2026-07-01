@@ -43,8 +43,8 @@ const DEFAULT_PROFILE = (userId) => ({
   userId: userId,
   level: 1,
   xp: 0,
-  currency: 1e-16, // start with some gold (100 Gold equivalent in grams)
-  currencyMigrated: true,
+  currency: 100, // start with some gold
+  ingot: 0, // Gold Ingot currency
   huntMarks: 0,
   elementalStones: 0,
   dex: {
@@ -107,10 +107,10 @@ async function getUser(userId) {
     }
   }
 
-  // Migrate old currency from raw Gold to Ingot grams
-  if (data.currencyMigrated === undefined || !data.currencyMigrated) {
-    data.currency = (data.currency || 0) / 1000000000000000000;
-    data.currencyMigrated = true;
+  // Revert migration: Convert Ingot grams back to Gold
+  if (data.currencyMigrated) {
+    data.currency = (data.currency || 0) * 1000000000000000000;
+    delete data.currencyMigrated;
     updated = true;
   }
 
@@ -178,14 +178,10 @@ async function getUser(userId) {
     }
   }
 
-  // Enforce gold limit of 3.0 grams of Gold Ingot (3e18 Gold)
-  // Also migrate existing profiles near 2.799999999999671 grams to the max limit of 3.0 grams
+  // Enforce gold limit of 3e18 Gold
   if (data.currency !== undefined) {
-    const limit = 3.0;
-    if (data.currency >= 2.799) {
-      data.currency = limit;
-      updated = true;
-    } else if (data.currency > limit) {
+    const limit = 3000000000000000000;
+    if (data.currency > limit) {
       data.currency = limit;
       updated = true;
     }
@@ -202,9 +198,9 @@ async function saveUser(userId, profile) {
   if (!db) {
     throw new Error('Database is not initialized.');
   }
-  // Enforce gold limit of 3.0 grams of Gold Ingot (3e18 Gold)
+  // Enforce gold limit of 3e18 Gold
   if (profile && profile.currency !== undefined) {
-    const limit = 3.0;
+    const limit = 3000000000000000000;
     if (profile.currency > limit) {
       profile.currency = limit;
     }
