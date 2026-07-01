@@ -820,6 +820,38 @@ function formatGoldIngot(grams) {
   return formatIngotNumber(grams) + 'g';
 }
 
+function formatCompactGold(value) {
+  if (value === undefined || value === null) return '0';
+  if (value < 1000000) {
+    return value.toLocaleString('id-ID');
+  }
+  
+  if (value >= 1e18) {
+    const num = value / 1e18;
+    const formatted = parseFloat(num.toFixed(1));
+    return `${formatted} QT (${formatted}e18)`;
+  }
+  if (value >= 1e15) {
+    const num = value / 1e15;
+    const formatted = parseFloat(num.toFixed(1));
+    return `${formatted} QA (${formatted}e15)`;
+  }
+  if (value >= 1e12) {
+    const num = value / 1e12;
+    const formatted = parseFloat(num.toFixed(1));
+    return `${formatted} T (${formatted}e12)`;
+  }
+  if (value >= 1e9) {
+    const num = value / 1e9;
+    const formatted = parseFloat(num.toFixed(1));
+    return `${formatted} B (${formatted}e9)`;
+  }
+  
+  const num = value / 1e6;
+  const formatted = parseFloat(num.toFixed(1));
+  return `${formatted} M (${formatted}e6)`;
+}
+
 function parseGoldAmount(input) {
   if (input === null || input === undefined) return NaN;
   const str = input.toString().trim().toLowerCase().replace(/,/g, '.');
@@ -3051,7 +3083,7 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
         }
       }
 
-      const formattedGold = (profile.currency || 0).toLocaleString('id-ID');
+      const formattedGold = formatCompactGold(profile.currency || 0);
       const formattedIngot = formatGoldIngot(profile.ingot || 0);
       const progressPct = Math.floor((profile.xp / xpReq) * 100);
       const levelProgressText = `Level Player: **${profile.level}**\nProgress: \`[${progressBar}]\` (${progressPct}%)\nXP Player: **${profile.xp}/${xpReq}**\nGold: **${formattedGold}**\nGold Ingot: **${formattedIngot}**\nPS: **${ps}/120**\n💎 Elemental Stones: **${profile.elementalStones || 0}**\n☣️ Lobby Threat Level: **${profile.lobbyThreatOffset >= 0 ? '+' : ''}${profile.lobbyThreatOffset || 0}**\n🌌 Beyond Level: **${profile.beyondLevel || 0}**`;
@@ -3268,13 +3300,13 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
         const medal = index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : `${index + 1}.`;
         
         if (isGoldSort) {
-          const goldText = (u.currency || 0).toLocaleString('id-ID');
+          const goldText = formatCompactGold(u.currency || 0);
           return `${medal} <@${u.userId}> • 🪙 **${goldText} Gold** • **Lv.${u.level}** (${u.xp} XP) • 🎖️ **${u.huntMarks || 0}** Marks`;
         } else if (isGramSort) {
           const ingotText = formatGoldIngot(u.ingot || 0);
           return `${medal} <@${u.userId}> • ✨ **${ingotText} Gold Ingot** • **Lv.${u.level}** (${u.xp} XP) • 🎖️ **${u.huntMarks || 0}** Marks`;
         } else {
-          const goldText = (u.currency || 0).toLocaleString('id-ID');
+          const goldText = formatCompactGold(u.currency || 0);
           return `${medal} <@${u.userId}> • **Lv.${u.level}** (${u.xp} XP) • 🪙 **${goldText} Gold** • 🎖️ **${u.huntMarks || 0}** Marks`;
         }
       });
@@ -4753,8 +4785,7 @@ async function executeRPGCommand(command, args, message, effectivePrefix) {
       const username = targetUserObj ? targetUserObj.username : `User (${targetId})`;
       const avatarURL = targetUserObj ? targetUserObj.displayAvatarURL() : null;
 
-      const formatIndoNumber = (num) => num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".");
-      const formattedGold = formatIndoNumber(targetProfile.currency || 0);
+      const formattedGold = formatCompactGold(targetProfile.currency || 0);
       const formattedIngot = formatGoldIngot(targetProfile.ingot || 0);
 
       const embed = new EmbedBuilder()
